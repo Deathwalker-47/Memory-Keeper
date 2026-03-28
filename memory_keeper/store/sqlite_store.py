@@ -1,6 +1,8 @@
 """SQLite implementation of the memory store."""
 
 import json
+import math
+from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
@@ -16,7 +18,10 @@ from memory_keeper.store.models import (
     RelationshipDynamic,
     Event,
     NarrativeArc,
+    ArcStatus,
     DriftLog,
+    DriftSeverity,
+    InconsistencyType,
     MemorySnapshot,
     BehavioralSignature,
 )
@@ -284,7 +289,7 @@ class SQLiteStore:
                 json.dumps(character.core_traits),
                 character.background,
                 character.worldview,
-                character.speech_patterns.json(),
+                character.speech_patterns.model_dump_json(),
                 character.appearance,
                 character.created_at.isoformat(),
                 character.last_modified.isoformat(),
@@ -589,3 +594,407 @@ class SQLiteStore:
                 timestamp=row["timestamp"],
             )
         return None
+
+    # Character update
+    async def update_character(self, character: CharacterIdentity) -> CharacterIdentity:
+        """Update an existing character."""
+        character.last_modified = datetime.utcnow()
+        await self.conn.execute(
+            """
+            UPDATE characters
+            SET name = ?, tier = ?, core_traits = ?, background = ?, worldview = ?,
+                speech_patterns = ?, appearance = ?, last_modified = ?, active = ?
+            WHERE character_id = ?
+            """,
+            (
+                character.name,
+                character.tier.value,
+                json.dumps(character.core_traits),
+                character.background,
+                character.worldview,
+                character.speech_patterns.model_dump_json(),
+                character.appearance,
+                character.last_modified.isoformat(),
+                int(character.active),
+                str(character.character_id),
+            ),
+        )
+        await self.conn.commit()
+        return character
+
+    # Relationship update
+    async def update_relationship(self, rel: RelationshipDynamic) -> RelationshipDynamic:
+        """Update an existing relationship."""
+        rel.last_interaction = datetime.utcnow()
+        await self.conn.execute(
+            """
+            UPDATE relationships
+            SET label = ?, trust_level = ?, power_balance = ?,
+                emotional_undercurrent = ?, history = ?, last_interaction = ?
+            WHERE relationship_id = ?
+            """,
+            (
+                rel.label,
+                rel.trust_level,
+                rel.power_balance,
+                rel.emotional_undercurrent,
+                rel.history,
+                rel.last_interaction.isoformat(),
+                str(rel.relationship_id),
+            ),
+        )
+        await self.conn.commit()
+        return rel
+
+    # Event operations
+    async def create_event(self, event: Event) -> Event:
+        """Create a new event."""
+        await self.conn.execute(
+            """
+            INSERT INTO events
+            (event_id, session_id, involved_characters, description,
+             emotional_impact, timestamp, session_turn)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(event.event_id),
+                str(event.session_id),
+                json.dumps([str(c) for c in event.involved_characters]),
+                event.description,
+                json.dumps({str(k): v for k, v in event.emotional_impact.items()}),
+                event.timestamp.isoformat(),
+                event.session_turn,
+            ),
+        )
+        await self.conn.commit()
+        return event
+
+    async def get_event(self, event_id: str) -> Optional[Event]:
+        """Retrieve an event by ID."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM events WHERE event_id = ?", (event_id,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return self._row_to_event(row)
+        return None
+
+    async def get_events(self, session_id: str) -> List[Event]:
+        """Get all events in a session."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM events WHERE session_id = ? ORDER BY session_turn ASC",
+            (str(session_id),),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_event(row) for row in rows]
+
+    def _row_to_event(self, row) -> Event:
+        """Convert a database row to an Event model."""
+        return Event(
+            event_id=UUID(row["event_id"]),
+            session_id=UUID(row["session_id"]),
+            involved_characters=[UUID(c) for c in json.loads(row["involved_characters"])],
+            description=row["description"],
+            emotional_impact={
+                UUID(k): v for k, v in json.loads(row["emotional_impact"]).items()
+            },
+            timestamp=row["timestamp"],
+            session_turn=row["session_turn"],
+        )
+
+    # Narrative arc operations
+    async def create_narrative_arc(self, arc: NarrativeArc) -> NarrativeArc:
+        """Create a new narrative arc."""
+        await self.conn.execute(
+            """
+            INSERT INTO narrative_arcs
+            (arc_id, session_id, title, involved_characters, current_status,
+             beats, expected_outcome)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(arc.arc_id),
+                str(arc.session_id),
+                arc.title,
+                json.dumps([str(c) for c in arc.involved_characters]),
+                arc.current_status.value,
+                json.dumps(arc.beats),
+                arc.expected_outcome,
+            ),
+        )
+        await self.conn.commit()
+        return arc
+
+    async def get_narrative_arcs(self, session_id: str) -> List[NarrativeArc]:
+        """Get all narrative arcs in a session."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM narrative_arcs WHERE session_id = ?",
+            (str(session_id),),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_arc(row) for row in rows]
+
+    async def update_narrative_arc(self, arc: NarrativeArc) -> NarrativeArc:
+        """Update a narrative arc."""
+        await self.conn.execute(
+            """
+            UPDATE narrative_arcs
+            SET title = ?, involved_characters = ?, current_status = ?,
+                beats = ?, expected_outcome = ?
+            WHERE arc_id = ?
+            """,
+            (
+                arc.title,
+                json.dumps([str(c) for c in arc.involved_characters]),
+                arc.current_status.value,
+                json.dumps(arc.beats),
+                arc.expected_outcome,
+                str(arc.arc_id),
+            ),
+        )
+        await self.conn.commit()
+        return arc
+
+    def _row_to_arc(self, row) -> NarrativeArc:
+        """Convert a database row to a NarrativeArc model."""
+        return NarrativeArc(
+            arc_id=UUID(row["arc_id"]),
+            session_id=UUID(row["session_id"]),
+            title=row["title"],
+            involved_characters=[UUID(c) for c in json.loads(row["involved_characters"])],
+            current_status=ArcStatus(row["current_status"]),
+            beats=json.loads(row["beats"]),
+            expected_outcome=row["expected_outcome"],
+        )
+
+    # Drift log operations
+    async def create_drift_log(self, drift: DriftLog) -> DriftLog:
+        """Create a new drift log entry."""
+        await self.conn.execute(
+            """
+            INSERT INTO drift_logs
+            (drift_id, character_id, session_id, inconsistency_type,
+             detected_in_message, previous_state, conflicting_state,
+             severity, resolution, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(drift.drift_id),
+                str(drift.character_id),
+                str(drift.session_id),
+                drift.inconsistency_type.value,
+                drift.detected_in_message,
+                drift.previous_state,
+                drift.conflicting_state,
+                drift.severity.value,
+                drift.resolution,
+                drift.timestamp.isoformat(),
+            ),
+        )
+        await self.conn.commit()
+        return drift
+
+    async def get_drift_logs(
+        self, session_id: str, character_id: Optional[str] = None
+    ) -> List[DriftLog]:
+        """Get drift logs for a session, optionally filtered by character."""
+        query = "SELECT * FROM drift_logs WHERE session_id = ?"
+        params: list = [str(session_id)]
+
+        if character_id:
+            query += " AND character_id = ?"
+            params.append(str(character_id))
+
+        query += " ORDER BY timestamp DESC"
+        cursor = await self.conn.execute(query, params)
+        rows = await cursor.fetchall()
+        return [
+            DriftLog(
+                drift_id=UUID(row["drift_id"]),
+                character_id=UUID(row["character_id"]),
+                session_id=UUID(row["session_id"]),
+                inconsistency_type=InconsistencyType(row["inconsistency_type"]),
+                detected_in_message=row["detected_in_message"],
+                previous_state=row["previous_state"],
+                conflicting_state=row["conflicting_state"],
+                severity=DriftSeverity(row["severity"]),
+                resolution=row["resolution"],
+                timestamp=row["timestamp"],
+            )
+            for row in rows
+        ]
+
+    # Behavioral signature operations
+    async def create_behavioral_signature(self, sig: BehavioralSignature) -> BehavioralSignature:
+        """Create a new behavioral signature."""
+        await self.conn.execute(
+            """
+            INSERT INTO behavioral_signatures
+            (signature_id, character_id, session_id, vocabulary_patterns,
+             speech_quirks, emotional_ranges, interaction_style, confidence, last_observed)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(sig.signature_id),
+                str(sig.character_id),
+                str(sig.session_id),
+                json.dumps(sig.vocabulary_patterns),
+                json.dumps(sig.speech_quirks),
+                json.dumps(sig.emotional_ranges),
+                sig.interaction_style,
+                sig.confidence,
+                sig.last_observed.isoformat(),
+            ),
+        )
+        await self.conn.commit()
+        return sig
+
+    async def get_behavioral_signature(
+        self, character_id: str, session_id: str
+    ) -> Optional[BehavioralSignature]:
+        """Get behavioral signature for a character."""
+        cursor = await self.conn.execute(
+            """
+            SELECT * FROM behavioral_signatures
+            WHERE character_id = ? AND session_id = ?
+            """,
+            (str(character_id), str(session_id)),
+        )
+        row = await cursor.fetchone()
+        if row:
+            return self._row_to_signature(row)
+        return None
+
+    async def update_behavioral_signature(self, sig: BehavioralSignature) -> BehavioralSignature:
+        """Update a behavioral signature."""
+        sig.last_observed = datetime.utcnow()
+        await self.conn.execute(
+            """
+            UPDATE behavioral_signatures
+            SET vocabulary_patterns = ?, speech_quirks = ?, emotional_ranges = ?,
+                interaction_style = ?, confidence = ?, last_observed = ?
+            WHERE signature_id = ?
+            """,
+            (
+                json.dumps(sig.vocabulary_patterns),
+                json.dumps(sig.speech_quirks),
+                json.dumps(sig.emotional_ranges),
+                sig.interaction_style,
+                sig.confidence,
+                sig.last_observed.isoformat(),
+                str(sig.signature_id),
+            ),
+        )
+        await self.conn.commit()
+        return sig
+
+    def _row_to_signature(self, row) -> BehavioralSignature:
+        """Convert a database row to a BehavioralSignature model."""
+        return BehavioralSignature(
+            signature_id=UUID(row["signature_id"]),
+            character_id=UUID(row["character_id"]),
+            session_id=UUID(row["session_id"]),
+            vocabulary_patterns=json.loads(row["vocabulary_patterns"]),
+            speech_quirks=json.loads(row["speech_quirks"]),
+            emotional_ranges=json.loads(row["emotional_ranges"]),
+            interaction_style=row["interaction_style"],
+            confidence=row["confidence"],
+            last_observed=row["last_observed"],
+        )
+
+    # Memory snapshot operations
+    async def create_snapshot(self, snapshot: MemorySnapshot) -> MemorySnapshot:
+        """Create a memory snapshot."""
+        await self.conn.execute(
+            """
+            INSERT INTO memory_snapshots
+            (snapshot_id, session_id, timestamp, snapshot_data, created_by, notes)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(snapshot.snapshot_id),
+                str(snapshot.session_id),
+                snapshot.timestamp.isoformat(),
+                json.dumps(snapshot.snapshot_data),
+                snapshot.created_by,
+                snapshot.notes,
+            ),
+        )
+        await self.conn.commit()
+        return snapshot
+
+    async def get_snapshot(self, snapshot_id: str) -> Optional[MemorySnapshot]:
+        """Retrieve a snapshot by ID."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM memory_snapshots WHERE snapshot_id = ?",
+            (snapshot_id,),
+        )
+        row = await cursor.fetchone()
+        if row:
+            return self._row_to_snapshot(row)
+        return None
+
+    async def list_snapshots(self, session_id: str) -> List[MemorySnapshot]:
+        """List all snapshots for a session."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM memory_snapshots WHERE session_id = ? ORDER BY timestamp DESC",
+            (str(session_id),),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_snapshot(row) for row in rows]
+
+    def _row_to_snapshot(self, row) -> MemorySnapshot:
+        """Convert a database row to a MemorySnapshot model."""
+        return MemorySnapshot(
+            snapshot_id=UUID(row["snapshot_id"]),
+            session_id=UUID(row["session_id"]),
+            timestamp=row["timestamp"],
+            snapshot_data=json.loads(row["snapshot_data"]),
+            created_by=row["created_by"],
+            notes=row["notes"],
+        )
+
+    async def delete_oldest_snapshots(self, session_id: str, keep: int = 10) -> None:
+        """Delete oldest snapshots beyond the keep limit."""
+        cursor = await self.conn.execute(
+            """
+            SELECT snapshot_id FROM memory_snapshots
+            WHERE session_id = ? ORDER BY timestamp DESC
+            """,
+            (str(session_id),),
+        )
+        rows = await cursor.fetchall()
+        if len(rows) > keep:
+            to_delete = [row["snapshot_id"] for row in rows[keep:]]
+            placeholders = ",".join("?" * len(to_delete))
+            await self.conn.execute(
+                f"DELETE FROM memory_snapshots WHERE snapshot_id IN ({placeholders})",
+                to_delete,
+            )
+            await self.conn.commit()
+
+    # Embedding search
+    async def search_facts_by_embedding(
+        self, session_id: str, query_embedding: List[float], limit: int = 10
+    ) -> List[Fact]:
+        """Search facts by cosine similarity to a query embedding."""
+        facts = await self.get_facts(str(session_id), active_only=True)
+        scored = []
+        for fact in facts:
+            if fact.embedding:
+                sim = self._cosine_similarity(query_embedding, fact.embedding)
+                scored.append((sim, fact))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [fact for _, fact in scored[:limit]]
+
+    @staticmethod
+    def _cosine_similarity(a: List[float], b: List[float]) -> float:
+        """Compute cosine similarity between two vectors."""
+        if len(a) != len(b):
+            return 0.0
+        dot = sum(x * y for x, y in zip(a, b))
+        norm_a = math.sqrt(sum(x * x for x in a))
+        norm_b = math.sqrt(sum(x * x for x in b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)

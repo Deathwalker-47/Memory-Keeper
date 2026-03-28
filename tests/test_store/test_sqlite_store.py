@@ -11,6 +11,14 @@ from memory_keeper.store.models import (
     CharacterState,
     RelationshipDynamic,
     SpeechPatterns,
+    Event,
+    NarrativeArc,
+    ArcStatus,
+    DriftLog,
+    DriftSeverity,
+    InconsistencyType,
+    BehavioralSignature,
+    MemorySnapshot,
 )
 
 
@@ -169,3 +177,243 @@ async def test_character_state_upsert(store):
 
     fetched2 = await store.get_character_state(str(c.character_id), str(session.session_id))
     assert fetched2.mood == "relieved"
+
+
+@pytest.mark.asyncio
+async def test_update_character(store):
+    """Test updating a character."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    c = CharacterIdentity(
+        session_id=session.session_id,
+        name="Elena",
+        tier=CharacterTier.PRIMARY,
+        core_traits=["sarcastic"],
+    )
+    await store.create_character(c)
+
+    c.core_traits = ["sarcastic", "loyal"]
+    c.background = "Former military operative"
+    updated = await store.update_character(c)
+    assert updated.core_traits == ["sarcastic", "loyal"]
+
+    fetched = await store.get_character(str(c.character_id))
+    assert fetched.core_traits == ["sarcastic", "loyal"]
+    assert fetched.background == "Former military operative"
+
+
+@pytest.mark.asyncio
+async def test_event_crud(store):
+    """Test event creation and retrieval."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    c1 = CharacterIdentity(session_id=session.session_id, name="Elena", tier=CharacterTier.PRIMARY)
+    await store.create_character(c1)
+
+    event = Event(
+        session_id=session.session_id,
+        involved_characters=[c1.character_id],
+        description="Elena discovered the hidden passage",
+        emotional_impact={c1.character_id: "surprised"},
+        session_turn=5,
+    )
+    created = await store.create_event(event)
+    assert created.description == "Elena discovered the hidden passage"
+
+    fetched = await store.get_event(str(event.event_id))
+    assert fetched is not None
+    assert fetched.session_turn == 5
+    assert c1.character_id in fetched.involved_characters
+
+    events = await store.get_events(str(session.session_id))
+    assert len(events) == 1
+
+
+@pytest.mark.asyncio
+async def test_narrative_arc_crud(store):
+    """Test narrative arc creation, retrieval, and update."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    c1 = CharacterIdentity(session_id=session.session_id, name="Elena", tier=CharacterTier.PRIMARY)
+    await store.create_character(c1)
+
+    arc = NarrativeArc(
+        session_id=session.session_id,
+        title="The Betrayal",
+        involved_characters=[c1.character_id],
+        current_status=ArcStatus.SETUP,
+        beats=["Discovery of betrayal"],
+        expected_outcome="Confrontation",
+    )
+    created = await store.create_narrative_arc(arc)
+    assert created.title == "The Betrayal"
+
+    arcs = await store.get_narrative_arcs(str(session.session_id))
+    assert len(arcs) == 1
+    assert arcs[0].current_status == ArcStatus.SETUP
+
+    arc.current_status = ArcStatus.DEVELOPMENT
+    arc.beats.append("Gathering evidence")
+    await store.update_narrative_arc(arc)
+
+    arcs = await store.get_narrative_arcs(str(session.session_id))
+    assert arcs[0].current_status == ArcStatus.DEVELOPMENT
+    assert len(arcs[0].beats) == 2
+
+
+@pytest.mark.asyncio
+async def test_drift_log_crud(store):
+    """Test drift log creation and retrieval."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    c1 = CharacterIdentity(session_id=session.session_id, name="Elena", tier=CharacterTier.PRIMARY)
+    await store.create_character(c1)
+
+    drift = DriftLog(
+        character_id=c1.character_id,
+        session_id=session.session_id,
+        inconsistency_type=InconsistencyType.TRAIT,
+        detected_in_message="Elena laughed warmly and hugged everyone",
+        previous_state="guarded and sarcastic",
+        conflicting_state="suddenly warm and open",
+        severity=DriftSeverity.MODERATE,
+    )
+    created = await store.create_drift_log(drift)
+    assert created.severity == DriftSeverity.MODERATE
+
+    logs = await store.get_drift_logs(str(session.session_id))
+    assert len(logs) == 1
+
+    logs_filtered = await store.get_drift_logs(
+        str(session.session_id), str(c1.character_id)
+    )
+    assert len(logs_filtered) == 1
+    assert logs_filtered[0].inconsistency_type == InconsistencyType.TRAIT
+
+
+@pytest.mark.asyncio
+async def test_behavioral_signature_crud(store):
+    """Test behavioral signature creation, retrieval, and update."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    c1 = CharacterIdentity(session_id=session.session_id, name="Elena", tier=CharacterTier.PRIMARY)
+    await store.create_character(c1)
+
+    sig = BehavioralSignature(
+        character_id=c1.character_id,
+        session_id=session.session_id,
+        vocabulary_patterns=["military jargon", "formal speech"],
+        speech_quirks=["never uses contractions when angry"],
+        emotional_ranges={"anger": ["cold silence", "clipped words"]},
+        interaction_style="guarded, professional",
+        confidence=0.8,
+    )
+    created = await store.create_behavioral_signature(sig)
+    assert created.confidence == 0.8
+
+    fetched = await store.get_behavioral_signature(
+        str(c1.character_id), str(session.session_id)
+    )
+    assert fetched is not None
+    assert fetched.vocabulary_patterns == ["military jargon", "formal speech"]
+
+    sig.confidence = 0.9
+    sig.speech_quirks.append("uses metaphors")
+    await store.update_behavioral_signature(sig)
+
+    fetched2 = await store.get_behavioral_signature(
+        str(c1.character_id), str(session.session_id)
+    )
+    assert fetched2.confidence == 0.9
+    assert len(fetched2.speech_quirks) == 2
+
+
+@pytest.mark.asyncio
+async def test_snapshot_crud(store):
+    """Test snapshot creation, retrieval, listing, and cleanup."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    snapshot = MemorySnapshot(
+        session_id=session.session_id,
+        snapshot_data={"characters": [], "facts": [], "test": True},
+        created_by="user",
+        notes="Test snapshot",
+    )
+    created = await store.create_snapshot(snapshot)
+    assert created.notes == "Test snapshot"
+
+    fetched = await store.get_snapshot(str(snapshot.snapshot_id))
+    assert fetched is not None
+    assert fetched.snapshot_data["test"] is True
+
+    snapshots = await store.list_snapshots(str(session.session_id))
+    assert len(snapshots) == 1
+
+    # Test cleanup - create 3 snapshots and keep only 2
+    s2 = MemorySnapshot(
+        session_id=session.session_id,
+        snapshot_data={"n": 2},
+    )
+    s3 = MemorySnapshot(
+        session_id=session.session_id,
+        snapshot_data={"n": 3},
+    )
+    await store.create_snapshot(s2)
+    await store.create_snapshot(s3)
+
+    await store.delete_oldest_snapshots(str(session.session_id), keep=2)
+    remaining = await store.list_snapshots(str(session.session_id))
+    assert len(remaining) == 2
+
+
+@pytest.mark.asyncio
+async def test_search_facts_by_embedding(store):
+    """Test semantic search over fact embeddings."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    # Create facts with simple embeddings for testing
+    f1 = Fact(
+        session_id=session.session_id,
+        category=FactCategory.WORLD,
+        subject="safehouse",
+        predicate="is in",
+        object="abandoned church",
+        confidence=0.9,
+        embedding=[1.0, 0.0, 0.0],
+    )
+    f2 = Fact(
+        session_id=session.session_id,
+        category=FactCategory.CHARACTER,
+        subject="Elena",
+        predicate="carries",
+        object="a silver dagger",
+        confidence=0.85,
+        embedding=[0.0, 1.0, 0.0],
+    )
+    f3 = Fact(
+        session_id=session.session_id,
+        category=FactCategory.WORLD,
+        subject="church",
+        predicate="has",
+        object="hidden basement",
+        confidence=0.7,
+        embedding=[0.9, 0.1, 0.0],  # Similar to f1
+    )
+    await store.create_fact(f1)
+    await store.create_fact(f2)
+    await store.create_fact(f3)
+
+    # Search with embedding similar to f1
+    results = await store.search_facts_by_embedding(
+        str(session.session_id), [1.0, 0.0, 0.0], limit=2
+    )
+    assert len(results) == 2
+    assert results[0].subject == "safehouse"  # Most similar
+    assert results[1].subject == "church"  # Second most similar
