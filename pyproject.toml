@@ -1,0 +1,154 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "memory-keeper"
+version = "0.1.0"
+description = "LLM-agnostic memory management service for roleplay applications"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Claude", email = "contact@memory-keeper.dev"}
+]
+keywords = [
+    "llm",
+    "roleplay",
+    "memory",
+    "persistence",
+    "character",
+    "ai",
+    "narrative"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Natural Language :: English",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "pydantic>=2.0.0",
+    "aiosqlite>=0.19.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "sentence-transformers>=2.2.0",
+    "httpx>=0.25.0",
+    "click>=8.1.0",
+    "loguru>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.7.0",
+    "ruff>=0.0.292",
+    "mypy>=1.5.0",
+    "pre-commit>=3.3.0",
+]
+postgres = [
+    "asyncpg>=0.28.0",
+]
+
+[project.scripts]
+memory-keeper = "memory_keeper.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/memory-keeper/memory-keeper"
+Documentation = "https://memory-keeper.readthedocs.io"
+Repository = "https://github.com/memory-keeper/memory-keeper"
+"Bug Tracker" = "https://github.com/memory-keeper/memory-keeper/issues"
+
+[tool.setuptools]
+packages = ["memory_keeper"]
+
+[tool.setuptools.package-data]
+memory_keeper = [
+    "analyzer/prompts/*.md",
+    "config.example.yaml",
+]
+
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311', 'py312']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = [
+    "E",
+    "F",
+    "W",
+    "I",
+]
+ignore = [
+    "E501",  # line too long
+]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+asyncio_mode = "auto"
+addopts = "--strict-markers -ra"
+markers = [
+    "asyncio: marks tests as async",
+    "slow: marks tests as slow",
+    "integration: marks tests as integration tests",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["memory_keeper"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+    "setup.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]

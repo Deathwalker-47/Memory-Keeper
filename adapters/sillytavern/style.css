@@ -1,0 +1,319 @@
+/**
+ * Memory Keeper Extension Styles
+ */
+
+/* Memory Keeper Button */
+#memory-keeper-button {
+  padding: 8px 16px;
+  background-color: #4a5568;
+  color: #ffffff;
+  border: 1px solid #2d3748;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+  margin-right: 8px;
+}
+
+#memory-keeper-button:hover {
+  background-color: #5a6578;
+}
+
+#memory-keeper-button:active {
+  background-color: #3a4558;
+}
+
+/* Memory Keeper Panel */
+.memory-keeper-panel {
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: 400px;
+  height: 100vh;
+  background-color: #1a202c;
+  border-left: 1px solid #2d3748;
+  box-shadow: -2px 0 8px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  overflow-y: auto;
+  color: #e2e8f0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+.memory-keeper-panel-header {
+  padding: 16px;
+  background-color: #2d3748;
+  border-bottom: 1px solid #4a5568;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.memory-keeper-panel-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.memory-keeper-panel-close {
+  background: none;
+  border: none;
+  color: #a0aec0;
+  cursor: pointer;
+  font-size: 24px;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.memory-keeper-panel-close:hover {
+  background-color: #4a5568;
+  color: #e2e8f0;
+}
+
+/* Panel Content */
+.memory-keeper-content {
+  padding: 16px;
+}
+
+.memory-section {
+  margin-bottom: 24px;
+}
+
+.memory-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #cbd5e0;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.memory-item {
+  background-color: #2d3748;
+  border-left: 3px solid #4299e1;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+
+.memory-item-label {
+  font-size: 12px;
+  color: #a0aec0;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.memory-item-content {
+  font-size: 14px;
+  color: #e2e8f0;
+  line-height: 1.4;
+}
+
+/* Character State */
+.character-state {
+  background-color: #2d3748;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+
+.state-attribute {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #4a5568;
+}
+
+.state-attribute:last-child {
+  border-bottom: none;
+}
+
+.state-label {
+  color: #a0aec0;
+  font-weight: 500;
+}
+
+.state-value {
+  color: #cbd5e0;
+}
+
+/* Drift Alert */
+.drift-alert {
+  background-color: #7c2d12;
+  border-left: 4px solid #ea580c;
+  padding: 12px;
+  margin-bottom: 8px;
+  border-radius: 4px;
+}
+
+.drift-alert-title {
+  font-weight: 600;
+  color: #fed7aa;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.drift-alert-content {
+  font-size: 12px;
+  color: #fdba74;
+  line-height: 1.4;
+}
+
+.drift-severity-minor {
+  border-left-color: #d6bcfa;
+  background-color: #4c1d95;
+}
+
+.drift-severity-minor .drift-alert-title {
+  color: #e9d5ff;
+}
+
+.drift-severity-minor .drift-alert-content {
+  color: #d6bcfa;
+}
+
+.drift-severity-moderate {
+  border-left-color: #fbbf24;
+  background-color: #78350f;
+}
+
+.drift-severity-moderate .drift-alert-title {
+  color: #fef3c7;
+}
+
+.drift-severity-moderate .drift-alert-content {
+  color: #fcd34d;
+}
+
+/* Buttons */
+.memory-button {
+  background-color: #4299e1;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 0.2s ease;
+  margin-top: 8px;
+  width: 100%;
+}
+
+.memory-button:hover {
+  background-color: #3182ce;
+}
+
+.memory-button:active {
+  background-color: #2c5aa0;
+}
+
+.memory-button-secondary {
+  background-color: #4a5568;
+  color: #cbd5e0;
+}
+
+.memory-button-secondary:hover {
+  background-color: #5a6578;
+  color: #e2e8f0;
+}
+
+/* Facts List */
+.facts-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.fact-item {
+  background-color: #2d3748;
+  padding: 10px;
+  margin-bottom: 6px;
+  border-radius: 3px;
+  border-left: 3px solid #48bb78;
+  font-size: 12px;
+}
+
+.fact-subject {
+  color: #90cdf4;
+  font-weight: 600;
+}
+
+.fact-predicate {
+  color: #a0aec0;
+  margin: 0 4px;
+}
+
+.fact-object {
+  color: #90cdf4;
+}
+
+/* Relationships */
+.relationship-item {
+  background-color: #2d3748;
+  padding: 10px;
+  margin-bottom: 6px;
+  border-radius: 3px;
+  border-left: 3px solid #ed8936;
+  font-size: 12px;
+}
+
+.relationship-label {
+  color: #fbd38d;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.relationship-metrics {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: #a0aec0;
+}
+
+/* Loading State */
+.memory-keeper-loading {
+  text-align: center;
+  padding: 32px 16px;
+  color: #a0aec0;
+}
+
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid #4a5568;
+  border-top-color: #4299e1;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 12px;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Scrollbar Styling */
+.memory-keeper-panel::-webkit-scrollbar {
+  width: 8px;
+}
+
+.memory-keeper-panel::-webkit-scrollbar-track {
+  background: #1a202c;
+}
+
+.memory-keeper-panel::-webkit-scrollbar-thumb {
+  background: #4a5568;
+  border-radius: 4px;
+}
+
+.memory-keeper-panel::-webkit-scrollbar-thumb:hover {
+  background: #5a6578;
+}

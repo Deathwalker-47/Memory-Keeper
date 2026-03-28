@@ -1,0 +1,42 @@
+{
+  "name": "Memory Keeper Extension",
+  "version": "0.1.0",
+  "author": "Memory Keeper Contributors",
+  "description": "SillyTavern extension for Memory Keeper memory management service",
+  "manifest": 3,
+  "requires": "sillytavern-3.0+",
+  "js": "index.js",
+  "css": "style.css",
+  "settings": {
+    "server_url": {
+      "type": "text",
+      "default": "http://127.0.0.1:8000",
+      "description": "Memory Keeper server URL"
+    },
+    "auto_sync": {
+      "type": "boolean",
+      "default": true,
+      "description": "Automatically sync character state to Memory Keeper"
+    },
+    "extract_facts": {
+      "type": "boolean",
+      "default": true,
+      "description": "Extract facts from chat messages"
+    },
+    "detect_drift": {
+      "type": "boolean",
+      "default": true,
+      "description": "Detect and alert on character drift"
+    },
+    "inject_context": {
+      "type": "boolean",
+      "default": true,
+      "description": "Inject memory context into system prompt"
+    },
+    "max_context_length": {
+      "type": "number",
+      "default": 2000,
+      "description": "Maximum tokens for memory context injection"
+    }
+  }
+}

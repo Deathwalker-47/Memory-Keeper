@@ -1,0 +1,101 @@
+# Memory Keeper Configuration Example
+# Copy this to config.yaml and customize for your setup
+
+# Configuration mode: simple, advanced, or custom
+mode: simple
+
+# LLM Provider Configuration
+llm:
+  # Provider options: openai, anthropic, local
+  provider: openai
+  
+  # Model to use
+  model: gpt-4
+  
+  # API Key (or set via MK_LLM__API_KEY environment variable)
+  api_key: sk-...
+  
+  # Optional: Custom API base URL for proxies or local servers
+  api_base: null
+  
+  # Temperature for generation (0.0-2.0)
+  temperature: 0.7
+  
+  # Maximum tokens per request
+  max_tokens: 2000
+
+# Analyzer Configuration
+analyzer:
+  # Enable/disable analyzer
+  enabled: true
+  
+  # Extract facts from messages
+  extract_facts: true
+  
+  # Extract relationship dynamics
+  extract_relationships: true
+  
+  # Detect character drift/inconsistencies
+  detect_drift: true
+  
+  # Consolidate memory when size exceeds threshold
+  consolidate_memory: true
+  
+  # Drift detection sensitivity: low, medium, or high
+  drift_sensitivity: medium
+  
+  # Minimum confidence threshold for facts (0.0-1.0)
+  fact_confidence_threshold: 0.6
+
+# Database Configuration
+database:
+  # Backend: sqlite or postgres
+  backend: sqlite
+  
+  # SQLite database path (if backend is sqlite)
+  sqlite_path: memory_keeper.db
+  
+  # PostgreSQL connection URL (if backend is postgres)
+  # postgres_url: postgresql://user:password@localhost/memory_keeper
+  postgres_url: null
+  
+  # Enable embedding generation for semantic search
+  enable_embeddings: true
+  
+  # Embedding model to use
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+
+# Session Configuration
+session:
+  # Create automatic snapshot every N messages
+  auto_snapshot_interval: 25
+  
+  # Maximum snapshots to keep per session
+  max_snapshots_per_session: 10
+  
+  # Use soft delete for sessions (mark as archived instead of deleting)
+  soft_delete: true
+  
+  # Archive sessions after N days of inactivity (null to disable)
+  archive_after_days: null
+
+# API Server Configuration
+api:
+  # Server host
+  host: 127.0.0.1
+  
+  # Server port
+  port: 8000
+  
+  # Enable auto-reload on file changes (development only)
+  reload: false
+  
+  # Number of worker processes
+  workers: 1
+  
+  # CORS allowed origins
+  cors_origins:
+    - "*"
+  
+  # Log level: debug, info, warning, error
+  log_level: info
