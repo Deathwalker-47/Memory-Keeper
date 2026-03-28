@@ -67,12 +67,25 @@ def create_app(config: Config) -> FastAPI:
     async def health():
         """Health check endpoint."""
         return {"status": "ok"}
-    
-    # Include routers (will be added when routes are implemented)
-    # from memory_keeper.api.routes import sessions, characters, facts, relationships
-    # app.include_router(sessions.router)
-    # app.include_router(characters.router)
-    # app.include_router(facts.router)
-    # app.include_router(relationships.router)
-    
+
+    # Include routers
+    from memory_keeper.api.routes import (
+        sessions_router,
+        characters_router,
+        facts_router,
+        relationships_router,
+        messages_router,
+        memory_router,
+        snapshots_router,
+        drift_router,
+    )
+    app.include_router(sessions_router)
+    app.include_router(characters_router)
+    app.include_router(facts_router)
+    app.include_router(relationships_router)
+    app.include_router(messages_router)
+    app.include_router(memory_router)
+    app.include_router(snapshots_router)
+    app.include_router(drift_router)
+
     return app
