@@ -8,6 +8,7 @@ from memory_keeper.api.routes.messages import router as messages_router
 from memory_keeper.api.routes.memory import router as memory_router
 from memory_keeper.api.routes.snapshots import router as snapshots_router
 from memory_keeper.api.routes.drift import router as drift_router
+from memory_keeper.api.routes.consolidation import router as consolidation_router
 
 __all__ = [
     "sessions_router",
@@ -18,4 +19,5 @@ __all__ = [
     "memory_router",
     "snapshots_router",
     "drift_router",
+    "consolidation_router",
 ]

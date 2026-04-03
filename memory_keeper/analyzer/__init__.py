@@ -6,6 +6,7 @@ from memory_keeper.analyzer.fact_extractor import extract_facts
 from memory_keeper.analyzer.relationship_extractor import extract_relationships
 from memory_keeper.analyzer.drift_detector import detect_drift
 from memory_keeper.analyzer.embeddings import generate_embedding, compute_similarity
+from memory_keeper.analyzer.state_consolidator import consolidate_facts, apply_consolidation
 
 __all__ = [
     "LLMClient",
@@ -17,4 +18,6 @@ __all__ = [
     "detect_drift",
     "generate_embedding",
     "compute_similarity",
+    "consolidate_facts",
+    "apply_consolidation",
 ]
