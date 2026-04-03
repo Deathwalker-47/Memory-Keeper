@@ -78,6 +78,7 @@ def create_app(config: Config) -> FastAPI:
         memory_router,
         snapshots_router,
         drift_router,
+        consolidation_router,
     )
     app.include_router(sessions_router)
     app.include_router(characters_router)
@@ -87,5 +88,6 @@ def create_app(config: Config) -> FastAPI:
     app.include_router(memory_router)
     app.include_router(snapshots_router)
     app.include_router(drift_router)
+    app.include_router(consolidation_router)
 
     return app

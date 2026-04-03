@@ -9,6 +9,7 @@ CHARACTER_EXTRACTION = PROMPTS_DIR / "character_extraction.md"
 DRIFT_DETECTION = PROMPTS_DIR / "drift_detection.md"
 FACT_EXTRACTION = PROMPTS_DIR / "fact_extraction.md"
 RELATIONSHIP_EXTRACTION = PROMPTS_DIR / "relationship_extraction.md"
+STATE_CONSOLIDATION = PROMPTS_DIR / "state_consolidation.md"
 
 
 def load_prompt(path: Path) -> str:
