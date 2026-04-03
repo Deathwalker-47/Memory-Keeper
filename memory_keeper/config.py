@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Optional, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class LLMConfig(BaseModel):
@@ -71,9 +71,7 @@ class Config(BaseModel):
     session: SessionConfig = Field(default_factory=SessionConfig)
     api: APIConfig = Field(default_factory=APIConfig)
     
-    class Config:
-        env_file = ".env"
-        env_nested_delimiter = "__"
+    model_config = ConfigDict(env_file=".env", env_nested_delimiter="__")
 
 
 def load_config(config_path: Optional[Path] = None) -> Config:
@@ -110,4 +108,4 @@ def save_config(config: Config, path: Path) -> None:
     """Save configuration to YAML file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:
-        yaml.dump(config.dict(), f, default_flow_style=False)
+        yaml.dump(config.model_dump(), f, default_flow_style=False)
