@@ -973,6 +973,79 @@ class SQLiteStore:
             )
             await self.conn.commit()
 
+    # Bulk delete operations (for rollback)
+    async def clear_session_characters(self, session_id: str) -> None:
+        """Delete all characters for a session."""
+        await self.conn.execute(
+            "DELETE FROM characters WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
+    async def clear_session_facts(self, session_id: str) -> None:
+        """Delete all facts for a session."""
+        await self.conn.execute(
+            "DELETE FROM facts WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
+    async def clear_session_relationships(self, session_id: str) -> None:
+        """Delete all relationships for a session."""
+        await self.conn.execute(
+            "DELETE FROM relationships WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
+    async def clear_session_events(self, session_id: str) -> None:
+        """Delete all events for a session."""
+        await self.conn.execute(
+            "DELETE FROM events WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
+    async def clear_session_narrative_arcs(self, session_id: str) -> None:
+        """Delete all narrative arcs for a session."""
+        await self.conn.execute(
+            "DELETE FROM narrative_arcs WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
+    async def clear_session_drift_logs(self, session_id: str) -> None:
+        """Delete all drift logs for a session."""
+        await self.conn.execute(
+            "DELETE FROM drift_logs WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
+    async def clear_session_character_states(self, session_id: str) -> None:
+        """Delete all character states for a session."""
+        await self.conn.execute(
+            "DELETE FROM character_states WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
+    async def clear_session_behavioral_signatures(self, session_id: str) -> None:
+        """Delete all behavioral signatures for a session."""
+        await self.conn.execute(
+            "DELETE FROM behavioral_signatures WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
+    async def clear_session_data(self, session_id: str) -> None:
+        """Clear all entity data for a session (used during rollback).
+
+        Removes characters, facts, relationships, events, arcs,
+        drift logs, character states, and behavioral signatures.
+        Does NOT delete the session itself or its snapshots.
+        """
+        await self.clear_session_character_states(session_id)
+        await self.clear_session_behavioral_signatures(session_id)
+        await self.clear_session_drift_logs(session_id)
+        await self.clear_session_events(session_id)
+        await self.clear_session_narrative_arcs(session_id)
+        await self.clear_session_relationships(session_id)
+        await self.clear_session_facts(session_id)
+        await self.clear_session_characters(session_id)
+
     # Embedding search
     async def search_facts_by_embedding(
         self, session_id: str, query_embedding: List[float], limit: int = 10

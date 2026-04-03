@@ -173,33 +173,41 @@ def export_command(session_id: str, output: str, config: Optional[str]):
     try:
         config_path = Path(config) if config else None
         cfg = load_config(config_path)
-        
+
         import json
         async def export_session():
             store = SQLiteStore(db_path=str(cfg.database.sqlite_path))
             await store.initialize()
-            
-            # Export session data
+
             session = await store.get_session(session_id)
+            if not session:
+                raise click.ClickException(f"Session '{session_id}' not found")
+
             characters = await store.get_characters(session_id)
             facts = await store.get_facts(session_id)
             relationships = await store.get_relationships(session_id)
-            
+            events = await store.get_events(session_id)
+            arcs = await store.get_narrative_arcs(session_id)
+            drift_logs = await store.get_drift_logs(session_id)
+
             data = {
-                "session": session.dict() if session else None,
-                "characters": [c.dict() for c in characters],
-                "facts": [f.dict() for f in facts],
-                "relationships": [r.dict() for r in relationships],
+                "session": session.model_dump(mode="json"),
+                "characters": [c.model_dump(mode="json") for c in characters],
+                "facts": [f.model_dump(mode="json") for f in facts],
+                "relationships": [r.model_dump(mode="json") for r in relationships],
+                "events": [e.model_dump(mode="json") for e in events],
+                "narrative_arcs": [a.model_dump(mode="json") for a in arcs],
+                "drift_logs": [d.model_dump(mode="json") for d in drift_logs],
             }
-            
+
             await store.close()
             return data
-        
+
         data = asyncio.run(export_session())
-        
+
         with open(output, "w") as f:
             json.dump(data, f, indent=2, default=str)
-        
+
         click.echo(f"Session exported to {output}")
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
@@ -220,33 +228,159 @@ def import_command(input_file: str, config: Optional[str]):
     try:
         config_path = Path(config) if config else None
         cfg = load_config(config_path)
-        
+
         import json
+        from uuid import UUID
+        from memory_keeper.store.models import (
+            Session,
+            CharacterIdentity,
+            CharacterTier,
+            Fact,
+            FactCategory,
+            RelationshipDynamic,
+            Event,
+            NarrativeArc,
+            ArcStatus,
+            DriftLog,
+            DriftSeverity,
+            InconsistencyType,
+        )
+
         with open(input_file) as f:
             data = json.load(f)
-        
-        async def import_session():
+
+        async def do_import():
             store = SQLiteStore(db_path=str(cfg.database.sqlite_path))
             await store.initialize()
-            
-            # Import session data
-            # (Implementation would depend on data model)
-            
+
+            counts = {"characters": 0, "facts": 0, "relationships": 0,
+                      "events": 0, "narrative_arcs": 0, "drift_logs": 0}
+
+            # Import session
+            session_data = data.get("session")
+            if session_data:
+                existing = await store.get_session(str(session_data["session_id"]))
+                if not existing:
+                    session = Session(
+                        session_id=UUID(session_data["session_id"]),
+                        name=session_data["name"],
+                        created_at=session_data.get("created_at"),
+                        updated_at=session_data.get("updated_at"),
+                        archived=session_data.get("archived", False),
+                        config=session_data.get("config", {}),
+                    )
+                    await store.create_session(session)
+                    click.echo(f"Created session: {session.name}")
+                else:
+                    click.echo(f"Session already exists: {existing.name}")
+
+            # Import characters
+            for char_data in data.get("characters", []):
+                char = CharacterIdentity(
+                    character_id=UUID(char_data["character_id"]),
+                    session_id=UUID(char_data["session_id"]),
+                    name=char_data["name"],
+                    tier=CharacterTier(char_data.get("tier", "primary")),
+                    core_traits=char_data.get("core_traits", []),
+                    background=char_data.get("background"),
+                    worldview=char_data.get("worldview"),
+                    speech_patterns=char_data.get("speech_patterns", {}),
+                    appearance=char_data.get("appearance"),
+                    created_at=char_data.get("created_at"),
+                    last_modified=char_data.get("last_modified"),
+                    active=char_data.get("active", True),
+                )
+                await store.create_character(char)
+                counts["characters"] += 1
+
+            # Import facts
+            for fact_data in data.get("facts", []):
+                fact = Fact(
+                    fact_id=UUID(fact_data["fact_id"]),
+                    session_id=UUID(fact_data["session_id"]),
+                    category=FactCategory(fact_data["category"]),
+                    subject=fact_data["subject"],
+                    predicate=fact_data["predicate"],
+                    object=fact_data["object"],
+                    evidence=fact_data.get("evidence"),
+                    confidence=fact_data.get("confidence", 0.5),
+                    active=fact_data.get("active", True),
+                    created_at=fact_data.get("created_at"),
+                    embedding=fact_data.get("embedding"),
+                )
+                await store.create_fact(fact)
+                counts["facts"] += 1
+
+            # Import relationships
+            for rel_data in data.get("relationships", []):
+                rel = RelationshipDynamic(
+                    relationship_id=UUID(rel_data["relationship_id"]),
+                    session_id=UUID(rel_data["session_id"]),
+                    from_character=UUID(rel_data["from_character"]),
+                    to_character=UUID(rel_data["to_character"]),
+                    label=rel_data["label"],
+                    trust_level=rel_data.get("trust_level", 0.0),
+                    power_balance=rel_data.get("power_balance", 0.0),
+                    emotional_undercurrent=rel_data.get("emotional_undercurrent"),
+                    history=rel_data.get("history"),
+                    last_interaction=rel_data.get("last_interaction"),
+                )
+                await store.create_relationship(rel)
+                counts["relationships"] += 1
+
+            # Import events
+            for event_data in data.get("events", []):
+                event = Event(
+                    event_id=UUID(event_data["event_id"]),
+                    session_id=UUID(event_data["session_id"]),
+                    involved_characters=[UUID(c) for c in event_data.get("involved_characters", [])],
+                    description=event_data["description"],
+                    emotional_impact={UUID(k): v for k, v in event_data.get("emotional_impact", {}).items()},
+                    timestamp=event_data.get("timestamp"),
+                    session_turn=event_data.get("session_turn", 0),
+                )
+                await store.create_event(event)
+                counts["events"] += 1
+
+            # Import narrative arcs
+            for arc_data in data.get("narrative_arcs", []):
+                arc = NarrativeArc(
+                    arc_id=UUID(arc_data["arc_id"]),
+                    session_id=UUID(arc_data["session_id"]),
+                    title=arc_data["title"],
+                    involved_characters=[UUID(c) for c in arc_data.get("involved_characters", [])],
+                    current_status=ArcStatus(arc_data.get("current_status", "setup")),
+                    beats=arc_data.get("beats", []),
+                    expected_outcome=arc_data.get("expected_outcome"),
+                )
+                await store.create_narrative_arc(arc)
+                counts["narrative_arcs"] += 1
+
+            # Import drift logs
+            for drift_data in data.get("drift_logs", []):
+                drift = DriftLog(
+                    drift_id=UUID(drift_data["drift_id"]),
+                    character_id=UUID(drift_data["character_id"]),
+                    session_id=UUID(drift_data["session_id"]),
+                    inconsistency_type=InconsistencyType(drift_data["inconsistency_type"]),
+                    detected_in_message=drift_data["detected_in_message"],
+                    previous_state=drift_data["previous_state"],
+                    conflicting_state=drift_data["conflicting_state"],
+                    severity=DriftSeverity(drift_data.get("severity", "minor")),
+                    resolution=drift_data.get("resolution"),
+                    timestamp=drift_data.get("timestamp"),
+                )
+                await store.create_drift_log(drift)
+                counts["drift_logs"] += 1
+
             await store.close()
-        
-        asyncio.run(import_session())
-        click.echo(f"Session imported from {input_file}")
+            return counts
+
+        counts = asyncio.run(do_import())
+        click.echo(f"Import complete: {counts}")
     except Exception as e:
         click.echo(f"Error: {e}", err=True)
         sys.exit(1)
-
-
-# Legacy exports for backward compatibility
-app = cli
-init_command = init_command
-serve_command = serve_command
-export_command = export_command
-import_command = import_command
 
 
 if __name__ == "__main__":

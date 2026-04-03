@@ -3,10 +3,10 @@
 __version__ = "0.1.0"
 __author__ = "Claude"
 
-from memory_keeper.main import app, init_command, serve_command, export_command, import_command
+from memory_keeper.main import cli, init_command, serve_command, export_command, import_command
 
 __all__ = [
-    "app",
+    "cli",
     "init_command",
     "serve_command",
     "export_command",
