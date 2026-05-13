@@ -375,32 +375,40 @@ class MessagePipeline:
             )
 
             for raw in raw_arcs:
-                if raw.get("is_new", True):
-                    involved = []
-                    for char_name in raw.get("involved_characters", []):
-                        found = await self.store.find_character_by_name(session_id, char_name)
-                        if found:
-                            involved.append(found.character_id)
-                    arc = NarrativeArc(
-                        session_id=UUID(session_id),
-                        title=raw.get("title", "Untitled Arc"),
-                        involved_characters=involved,
-                        current_status=ArcStatus(raw.get("current_status", "setup")),
-                        beats=[raw["new_beat"]] if raw.get("new_beat") else [],
-                        expected_outcome=raw.get("expected_outcome"),
-                    )
-                    await self.store.create_narrative_arc(arc)
-                else:
-                    match_title = raw.get("existing_arc_title", raw.get("title"))
-                    for existing in existing_arcs:
-                        if existing.title == match_title:
-                            if raw.get("current_status"):
-                                existing.current_status = ArcStatus(raw["current_status"])
-                            if raw.get("new_beat"):
-                                existing.beats.append(raw["new_beat"])
-                            if raw.get("expected_outcome"):
-                                existing.expected_outcome = raw["expected_outcome"]
-                            await self.store.update_narrative_arc(existing)
-                            break
+                try:
+                    status_str = raw.get("current_status", "setup")
+                    try:
+                        status = ArcStatus(status_str)
+                    except ValueError:
+                        status = ArcStatus.SETUP
+
+                    if raw.get("is_new", True):
+                        involved = []
+                        for char_name in raw.get("involved_characters", []):
+                            found = await self.store.find_character_by_name(session_id, char_name)
+                            if found:
+                                involved.append(found.character_id)
+                        arc = NarrativeArc(
+                            session_id=UUID(session_id),
+                            title=raw.get("title", "Untitled Arc"),
+                            involved_characters=involved,
+                            current_status=status,
+                            beats=[raw["new_beat"]] if raw.get("new_beat") else [],
+                            expected_outcome=raw.get("expected_outcome"),
+                        )
+                        await self.store.create_narrative_arc(arc)
+                    else:
+                        match_title = raw.get("existing_arc_title", raw.get("title"))
+                        for existing in existing_arcs:
+                            if existing.title == match_title:
+                                existing.current_status = status
+                                if raw.get("new_beat"):
+                                    existing.beats.append(raw["new_beat"])
+                                if raw.get("expected_outcome"):
+                                    existing.expected_outcome = raw["expected_outcome"]
+                                await self.store.update_narrative_arc(existing)
+                                break
+                except Exception as e:
+                    logger.warning(f"Failed to process arc item: {e}")
         except Exception as e:
             logger.warning(f"Failed to extract/store arcs: {e}")

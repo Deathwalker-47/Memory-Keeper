@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from memory_keeper.api.context_formatter import format_memory_context
 from memory_keeper.api.schemas import MemoryContextResponse
-from memory_keeper.api.server import get_store
-from memory_keeper.config import load_config
+from memory_keeper.api.server import get_store, get_config
+from memory_keeper.config import Config
 from memory_keeper.store.sqlite_store import SQLiteStore
 
 router = APIRouter(prefix="/sessions/{session_id}/memory", tags=["memory"])
@@ -17,6 +17,7 @@ async def get_memory_context(
     character: str = Query(..., description="Character name to retrieve context for"),
     max_length: int = Query(2000, description="Max context length in characters"),
     store: SQLiteStore = Depends(get_store),
+    config: Config = Depends(get_config),
 ):
     """Get formatted memory context block for a character.
 
@@ -30,8 +31,6 @@ async def get_memory_context(
     char = await store.find_character_by_name(session_id, character)
     if not char:
         raise HTTPException(status_code=404, detail=f"Character '{character}' not found")
-
-    config = load_config()
 
     # Gather all relevant data
     state = await store.get_character_state(str(char.character_id), session_id)

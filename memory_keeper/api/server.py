@@ -14,6 +14,9 @@ from memory_keeper.store.sqlite_store import SQLiteStore
 _store: Optional[SQLiteStore] = None
 
 
+_config: Optional[Config] = None
+
+
 async def get_store() -> SQLiteStore:
     """Get the global store instance."""
     global _store
@@ -22,13 +25,22 @@ async def get_store() -> SQLiteStore:
     return _store
 
 
+def get_config() -> Config:
+    """Get the app's runtime config."""
+    global _config
+    if _config is None:
+        raise RuntimeError("Config not initialized")
+    return _config
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Handle FastAPI lifespan events."""
-    global _store
-    
+    global _store, _config
+
     # Startup
     config = app.state.config
+    _config = config
     _store = SQLiteStore(db_path=str(config.database.sqlite_path))
     await _store.initialize()
     

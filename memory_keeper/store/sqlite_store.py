@@ -184,7 +184,7 @@ class SQLiteStore:
         
         CREATE TABLE IF NOT EXISTS narrator_states (
             narrator_id TEXT PRIMARY KEY,
-            session_id TEXT NOT NULL,
+            session_id TEXT NOT NULL UNIQUE,
             tense TEXT,
             perspective TEXT,
             description_density TEXT,
