@@ -206,7 +206,51 @@ class SQLiteStore(BaseStore):
         
         await self.conn.executescript(schema)
         await self.conn.commit()
-    
+
+        await self._run_migrations()
+
+    async def _run_migrations(self) -> None:
+        """Apply schema migrations for existing databases."""
+        # Collect existing columns per table to avoid duplicate ALTER TABLEs
+        async def _has_column(table: str, column: str) -> bool:
+            cursor = await self.conn.execute(f"PRAGMA table_info({table})")
+            cols = await cursor.fetchall()
+            return any(c["name"] == column for c in cols)
+
+        # Migration: sessions.message_count (added in Phase 2)
+        if not await _has_column("sessions", "message_count"):
+            await self.conn.execute(
+                "ALTER TABLE sessions ADD COLUMN message_count INTEGER DEFAULT 0"
+            )
+
+        # Migration: drift_logs.character_id nullable (was NOT NULL before Phase 2)
+        # SQLite cannot ALTER COLUMN, so rebuild the table if the column is NOT NULL
+        cursor = await self.conn.execute("PRAGMA table_info(drift_logs)")
+        drift_cols = await cursor.fetchall()
+        for col in drift_cols:
+            if col["name"] == "character_id" and col["notnull"]:
+                await self.conn.executescript("""
+                    ALTER TABLE drift_logs RENAME TO _drift_logs_old;
+                    CREATE TABLE drift_logs (
+                        drift_id TEXT PRIMARY KEY,
+                        character_id TEXT,
+                        session_id TEXT NOT NULL,
+                        inconsistency_type TEXT NOT NULL,
+                        detected_in_message TEXT NOT NULL,
+                        previous_state TEXT NOT NULL,
+                        conflicting_state TEXT NOT NULL,
+                        severity TEXT DEFAULT 'minor',
+                        resolution TEXT,
+                        timestamp TEXT NOT NULL,
+                        FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    );
+                    INSERT INTO drift_logs SELECT * FROM _drift_logs_old;
+                    DROP TABLE _drift_logs_old;
+                """)
+                break
+
+        await self.conn.commit()
+
     # Session operations
     async def create_session(self, session: Session) -> Session:
         """Create a new session."""
