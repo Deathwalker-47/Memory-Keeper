@@ -139,6 +139,21 @@ class MessagePipeline:
     ) -> None:
         """Run all extraction and drift analysis in the background."""
         try:
+            # Capture narrator state *before* concurrent tasks so drift
+            # detection compares against the pre-update baseline, not a
+            # state that may have been overwritten by the narrator upsert.
+            prior_narrator_state = None
+            if self.analyzer_config.detect_narrator_drift:
+                existing = await self.store.get_narrator_state(session_id)
+                if existing:
+                    prior_narrator_state = {
+                        "tense": existing.tense,
+                        "perspective": existing.perspective,
+                        "description_density": existing.description_density,
+                        "pacing": existing.pacing,
+                        "tone": existing.tone,
+                    }
+
             # Run extractors concurrently
             tasks = []
 
@@ -167,9 +182,9 @@ class MessagePipeline:
                     session_id, character, message
                 ))
 
-            if self.analyzer_config.detect_narrator_drift:
+            if prior_narrator_state is not None:
                 tasks.append(self._detect_and_store_narrator_drift(
-                    session_id, message
+                    session_id, message, prior_narrator_state
                 ))
 
             # Also extract character info to update state
@@ -425,23 +440,16 @@ class MessagePipeline:
             logger.warning(f"Failed to extract/store arcs: {e}")
 
     async def _detect_and_store_narrator_drift(
-        self, session_id: str, message: str
+        self, session_id: str, message: str, prior_state: dict
     ) -> None:
-        """Detect narrator voice drift and store results."""
+        """Detect narrator voice drift and store results.
+
+        Args:
+            prior_state: Narrator state captured *before* the concurrent
+                         extraction batch so the comparison is stable.
+        """
         try:
-            existing = await self.store.get_narrator_state(session_id)
-            if not existing:
-                return
-
-            prev_dict = {
-                "tense": existing.tense,
-                "perspective": existing.perspective,
-                "description_density": existing.description_density,
-                "pacing": existing.pacing,
-                "tone": existing.tone,
-            }
-
-            result = await detect_narrator_drift(self.llm_client, message, prev_dict)
+            result = await detect_narrator_drift(self.llm_client, message, prior_state)
 
             if result.get("drift_detected"):
                 severity_map = {
