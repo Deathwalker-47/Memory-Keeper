@@ -136,6 +136,9 @@ class BaseStore(ABC):
     async def create_narrative_arc(self, arc: NarrativeArc) -> NarrativeArc: ...
 
     @abstractmethod
+    async def get_narrative_arc(self, arc_id: str) -> Optional[NarrativeArc]: ...
+
+    @abstractmethod
     async def get_narrative_arcs(self, session_id: str) -> List[NarrativeArc]: ...
 
     @abstractmethod

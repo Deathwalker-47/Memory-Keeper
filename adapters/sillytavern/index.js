@@ -5,8 +5,8 @@
  * for roleplay chats through integration with Memory Keeper API.
  */
 
-let extensionSettings = {
-  serverUrl: "http://127.0.0.1:8000",
+const DEFAULT_SETTINGS = {
+  serverUrl: "http://localhost:8000",
   autoSync: true,
   extractFacts: true,
   detectDrift: true,
@@ -14,11 +14,282 @@ let extensionSettings = {
   maxContextLength: 2000,
 };
 
+let extensionSettings = { ...DEFAULT_SETTINGS };
+
 // Track current session and characters
 let currentSession = null;
 let sessionCharacters = {};
 let driftAlerts = [];
 let panelOpen = false;
+let backendHealthy = false;
+
+// ─── Settings Persistence ───────────────────────────────────
+
+/**
+ * Load extension settings from SillyTavern's settings system.
+ * Restores defaults for any missing keys.
+ */
+function loadSettings() {
+  if (window.extension_settings && window.extension_settings["memory-keeper"]) {
+    const saved = window.extension_settings["memory-keeper"];
+    extensionSettings.serverUrl =
+      typeof saved.server_url === "string" && saved.server_url.length > 0
+        ? saved.server_url
+        : DEFAULT_SETTINGS.serverUrl;
+    extensionSettings.autoSync =
+      typeof saved.auto_sync === "boolean"
+        ? saved.auto_sync
+        : DEFAULT_SETTINGS.autoSync;
+    extensionSettings.extractFacts =
+      typeof saved.extract_facts === "boolean"
+        ? saved.extract_facts
+        : DEFAULT_SETTINGS.extractFacts;
+    extensionSettings.detectDrift =
+      typeof saved.detect_drift === "boolean"
+        ? saved.detect_drift
+        : DEFAULT_SETTINGS.detectDrift;
+    extensionSettings.injectContext =
+      typeof saved.inject_context === "boolean"
+        ? saved.inject_context
+        : DEFAULT_SETTINGS.injectContext;
+    extensionSettings.maxContextLength =
+      typeof saved.max_context_length === "number" && saved.max_context_length > 0
+        ? saved.max_context_length
+        : DEFAULT_SETTINGS.maxContextLength;
+  } else {
+    // First load — initialize the settings object so save works
+    if (window.extension_settings) {
+      window.extension_settings["memory-keeper"] = {};
+    }
+    extensionSettings = { ...DEFAULT_SETTINGS };
+  }
+  console.log("[Memory Keeper] Loaded settings:", extensionSettings);
+}
+
+/**
+ * Persist current extensionSettings into SillyTavern's settings store.
+ */
+function saveSettings() {
+  if (!window.extension_settings) {
+    console.warn("[Memory Keeper] extension_settings not available; cannot save.");
+    return;
+  }
+
+  window.extension_settings["memory-keeper"] = {
+    server_url: extensionSettings.serverUrl,
+    auto_sync: extensionSettings.autoSync,
+    extract_facts: extensionSettings.extractFacts,
+    detect_drift: extensionSettings.detectDrift,
+    inject_context: extensionSettings.injectContext,
+    max_context_length: extensionSettings.maxContextLength,
+    // Persist session data for restoration across reloads
+    current_session: currentSession,
+    session_characters: sessionCharacters,
+  };
+
+  // Use SillyTavern's debounced save if available
+  if (typeof window.saveSettingsDebounced === "function") {
+    window.saveSettingsDebounced();
+  }
+}
+
+// ─── Session Persistence ────────────────────────────────────
+
+/**
+ * Restore a previously active session from extension_settings.
+ * Called during init so we do not create duplicate sessions on every reload.
+ */
+async function restoreSession() {
+  if (!window.extension_settings || !window.extension_settings["memory-keeper"]) {
+    return;
+  }
+
+  const saved = window.extension_settings["memory-keeper"];
+  const savedSessionId = saved.current_session;
+  const savedCharacters = saved.session_characters;
+
+  if (!savedSessionId || typeof savedSessionId !== "string") {
+    return;
+  }
+
+  // Verify the session still exists on the backend by fetching its facts
+  // (a lightweight check — any valid endpoint that 404s on unknown sessions works)
+  const checkUrl = `${extensionSettings.serverUrl}/sessions/${savedSessionId}/facts`;
+  try {
+    const response = await fetch(checkUrl);
+    if (response.ok) {
+      currentSession = savedSessionId;
+      sessionCharacters =
+        savedCharacters && typeof savedCharacters === "object"
+          ? { ...savedCharacters }
+          : {};
+      console.log(
+        `[Memory Keeper] Restored session ${currentSession} with characters:`,
+        Object.keys(sessionCharacters),
+      );
+    } else {
+      console.log(
+        `[Memory Keeper] Previous session ${savedSessionId} no longer exists on backend; will create new session when needed.`,
+      );
+    }
+  } catch {
+    console.warn(
+      "[Memory Keeper] Could not verify previous session (backend unreachable); will retry later.",
+    );
+  }
+}
+
+/**
+ * Persist the current session ID and characters map to extension_settings.
+ */
+function persistSession() {
+  saveSettings();
+}
+
+// ─── Error Handling ─────────────────────────────────────────
+
+/**
+ * Show a toast notification using SillyTavern's toastr or fallback to console.
+ */
+function showToast(message, title, level) {
+  if (window.toastr && typeof window.toastr[level] === "function") {
+    window.toastr[level](message, title);
+  } else {
+    const fn =
+      level === "error"
+        ? console.error
+        : level === "warning"
+          ? console.warn
+          : console.info;
+    fn(`[Memory Keeper] ${title || ""}: ${message}`);
+  }
+}
+
+/**
+ * Wrapper for API calls that catches network and HTTP errors,
+ * shows a toast, and returns null on failure instead of crashing.
+ *
+ * @param {Function} fn - An async function that performs the API call.
+ * @param {string} fallbackMsg - Human-readable description shown on error.
+ * @returns {*} The return value of fn, or null on failure.
+ */
+async function apiCall(fn, fallbackMsg) {
+  try {
+    return await fn();
+  } catch (error) {
+    // Network errors (fetch throws TypeError for network failures)
+    if (error instanceof TypeError && error.message.includes("fetch")) {
+      showToast(
+        `Network error: Could not reach the Memory Keeper backend. Is it running?`,
+        fallbackMsg,
+        "error",
+      );
+      console.error(`[Memory Keeper] Network error during "${fallbackMsg}":`, error);
+      return null;
+    }
+
+    // HTTP errors we threw ourselves or unexpected errors
+    const detail =
+      error && error.message ? error.message : "Unknown error";
+    showToast(detail, fallbackMsg, "error");
+    console.error(`[Memory Keeper] Error during "${fallbackMsg}":`, error);
+    return null;
+  }
+}
+
+// ─── Backend Health Check ───────────────────────────────────
+
+/**
+ * Check if the Memory Keeper backend is reachable.
+ * Updates `backendHealthy` and shows a warning toast if unreachable.
+ * Returns true if healthy.
+ */
+async function checkBackendHealth() {
+  try {
+    const url = `${extensionSettings.serverUrl}/health`;
+    const response = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (response.ok) {
+      backendHealthy = true;
+      console.log("[Memory Keeper] Backend is healthy.");
+      return true;
+    }
+    backendHealthy = false;
+    showToast(
+      `Backend returned HTTP ${response.status}. Some features may not work.`,
+      "Memory Keeper",
+      "warning",
+    );
+    return false;
+  } catch {
+    backendHealthy = false;
+    showToast(
+      `Cannot reach Memory Keeper backend at ${extensionSettings.serverUrl}. Make sure the server is running.`,
+      "Memory Keeper",
+      "warning",
+    );
+    return false;
+  }
+}
+
+/**
+ * Return a small HTML badge showing the current backend status.
+ */
+function healthStatusHtml() {
+  if (backendHealthy) {
+    return `<span style="color:#48bb78;font-size:12px;margin-left:8px;" title="Backend connected">&#9679; Connected</span>`;
+  }
+  return `<span style="color:#f56565;font-size:12px;margin-left:8px;" title="Backend unreachable">&#9679; Disconnected</span>`;
+}
+
+// ─── Event Data Validation ──────────────────────────────────
+
+/**
+ * Validate that a message event has the expected structure.
+ * Returns { message, character } or null if invalid.
+ */
+function validateMessageEvent(event, eventName) {
+  if (!event || !event.detail) {
+    console.warn(
+      `[Memory Keeper] ${eventName}: event.detail is missing. Event:`,
+      event,
+    );
+    return null;
+  }
+
+  const detail = event.detail;
+
+  if (typeof detail.message !== "string" && detail.message !== undefined) {
+    console.warn(
+      `[Memory Keeper] ${eventName}: event.detail.message is not a string. Got:`,
+      typeof detail.message,
+    );
+  }
+
+  if (typeof detail.character !== "string" && detail.character !== undefined) {
+    console.warn(
+      `[Memory Keeper] ${eventName}: event.detail.character is not a string. Got:`,
+      typeof detail.character,
+    );
+  }
+
+  const message =
+    typeof detail.message === "string" ? detail.message : String(detail.message || "");
+  const character =
+    typeof detail.character === "string"
+      ? detail.character
+      : String(detail.character || "Unknown");
+
+  if (!message) {
+    console.warn(
+      `[Memory Keeper] ${eventName}: empty message content; skipping sync.`,
+    );
+    return null;
+  }
+
+  return { message, character };
+}
+
+// ─── Initialization ─────────────────────────────────────────
 
 /**
  * Initialize the extension
@@ -27,27 +298,183 @@ async function initExtension() {
   console.log("[Memory Keeper] Initializing extension...");
 
   loadSettings();
+
+  // Health check first so we know if the backend is up
+  await checkBackendHealth();
+
+  // Restore any previously active session
+  await restoreSession();
+
   hookMessageEvents();
   createUIElements();
+  createSettingsUI();
 
   console.log("[Memory Keeper] Extension initialized");
 }
 
+// ─── Settings UI ────────────────────────────────────────────
+
 /**
- * Load extension settings from SillyTavern's settings system
+ * Create an HTML settings form and insert it into SillyTavern's
+ * extension settings panel.
  */
-function loadSettings() {
-  if (window.extension_settings && window.extension_settings["memory-keeper"]) {
-    const saved = window.extension_settings["memory-keeper"];
-    extensionSettings.serverUrl = saved.server_url || extensionSettings.serverUrl;
-    extensionSettings.autoSync = saved.auto_sync ?? extensionSettings.autoSync;
-    extensionSettings.extractFacts = saved.extract_facts ?? extensionSettings.extractFacts;
-    extensionSettings.detectDrift = saved.detect_drift ?? extensionSettings.detectDrift;
-    extensionSettings.injectContext = saved.inject_context ?? extensionSettings.injectContext;
-    extensionSettings.maxContextLength = saved.max_context_length || extensionSettings.maxContextLength;
+function createSettingsUI() {
+  const settingsHtml = `
+    <div id="memory-keeper-settings" class="memory-keeper-settings-container">
+      <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+          <b>Memory Keeper</b>
+          <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+
+          <div class="memory-keeper-setting-row">
+            <label for="mk-server-url">Server URL</label>
+            <input
+              id="mk-server-url"
+              type="text"
+              class="text_pole"
+              placeholder="http://localhost:8000"
+              value="${escapeHtml(extensionSettings.serverUrl)}"
+            />
+          </div>
+
+          <div class="memory-keeper-setting-row">
+            <label class="checkbox_label" for="mk-auto-sync">
+              <input id="mk-auto-sync" type="checkbox" ${extensionSettings.autoSync ? "checked" : ""} />
+              <span>Auto-sync messages</span>
+            </label>
+          </div>
+
+          <div class="memory-keeper-setting-row">
+            <label class="checkbox_label" for="mk-extract-facts">
+              <input id="mk-extract-facts" type="checkbox" ${extensionSettings.extractFacts ? "checked" : ""} />
+              <span>Enable fact extraction</span>
+            </label>
+          </div>
+
+          <div class="memory-keeper-setting-row">
+            <label class="checkbox_label" for="mk-detect-drift">
+              <input id="mk-detect-drift" type="checkbox" ${extensionSettings.detectDrift ? "checked" : ""} />
+              <span>Enable drift detection</span>
+            </label>
+          </div>
+
+          <div class="memory-keeper-setting-row">
+            <label class="checkbox_label" for="mk-inject-context">
+              <input id="mk-inject-context" type="checkbox" ${extensionSettings.injectContext ? "checked" : ""} />
+              <span>Enable context injection</span>
+            </label>
+          </div>
+
+          <div class="memory-keeper-setting-row">
+            <label for="mk-max-context-length">Max context length (tokens)</label>
+            <input
+              id="mk-max-context-length"
+              type="number"
+              class="text_pole"
+              min="100"
+              max="16000"
+              step="100"
+              value="${extensionSettings.maxContextLength}"
+            />
+          </div>
+
+          <div class="memory-keeper-setting-row" style="margin-top:8px;">
+            <button id="mk-test-connection" class="menu_button">Test Connection</button>
+          </div>
+
+          <div id="mk-settings-status" class="memory-keeper-setting-row" style="font-size:12px;color:#a0aec0;margin-top:4px;"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Insert into SillyTavern's extensions settings panel
+  const target = document.getElementById("extensions_settings");
+  if (target) {
+    const wrapper = document.createElement("div");
+    wrapper.innerHTML = settingsHtml;
+    target.appendChild(wrapper);
+  } else if (typeof $ !== "undefined" && $("#extensions_settings").length) {
+    $("#extensions_settings").append(settingsHtml);
+  } else {
+    // Fallback: try again after a short delay in case DOM is not ready
+    console.warn(
+      "[Memory Keeper] #extensions_settings not found; settings UI not attached.",
+    );
+    return;
   }
-  console.log("[Memory Keeper] Loaded settings:", extensionSettings);
+
+  // Bind change handlers
+  const serverUrlInput = document.getElementById("mk-server-url");
+  if (serverUrlInput) {
+    serverUrlInput.addEventListener("input", () => {
+      extensionSettings.serverUrl = serverUrlInput.value.trim() || DEFAULT_SETTINGS.serverUrl;
+      saveSettings();
+    });
+  }
+
+  const autoSyncCheckbox = document.getElementById("mk-auto-sync");
+  if (autoSyncCheckbox) {
+    autoSyncCheckbox.addEventListener("change", () => {
+      extensionSettings.autoSync = autoSyncCheckbox.checked;
+      saveSettings();
+    });
+  }
+
+  const extractFactsCheckbox = document.getElementById("mk-extract-facts");
+  if (extractFactsCheckbox) {
+    extractFactsCheckbox.addEventListener("change", () => {
+      extensionSettings.extractFacts = extractFactsCheckbox.checked;
+      saveSettings();
+    });
+  }
+
+  const detectDriftCheckbox = document.getElementById("mk-detect-drift");
+  if (detectDriftCheckbox) {
+    detectDriftCheckbox.addEventListener("change", () => {
+      extensionSettings.detectDrift = detectDriftCheckbox.checked;
+      saveSettings();
+    });
+  }
+
+  const injectContextCheckbox = document.getElementById("mk-inject-context");
+  if (injectContextCheckbox) {
+    injectContextCheckbox.addEventListener("change", () => {
+      extensionSettings.injectContext = injectContextCheckbox.checked;
+      saveSettings();
+    });
+  }
+
+  const maxContextInput = document.getElementById("mk-max-context-length");
+  if (maxContextInput) {
+    maxContextInput.addEventListener("change", () => {
+      const val = parseInt(maxContextInput.value, 10);
+      extensionSettings.maxContextLength =
+        Number.isFinite(val) && val > 0 ? val : DEFAULT_SETTINGS.maxContextLength;
+      saveSettings();
+    });
+  }
+
+  const testBtn = document.getElementById("mk-test-connection");
+  if (testBtn) {
+    testBtn.addEventListener("click", async () => {
+      const statusEl = document.getElementById("mk-settings-status");
+      if (statusEl) statusEl.textContent = "Testing connection...";
+      const healthy = await checkBackendHealth();
+      if (statusEl) {
+        statusEl.innerHTML = healthy
+          ? '<span style="color:#48bb78;">Connection successful.</span>'
+          : `<span style="color:#f56565;">Connection failed. Check that the server is running at ${escapeHtml(extensionSettings.serverUrl)}</span>`;
+      }
+      // Also update the panel header badge if the panel is open
+      updatePanelHealthBadge();
+    });
+  }
 }
+
+// ─── Message Event Hooks ────────────────────────────────────
 
 /**
  * Hook into SillyTavern message events
@@ -66,13 +493,13 @@ function hookMessageEvents() {
 async function handleMessageSent(event) {
   if (!extensionSettings.autoSync || !currentSession) return;
 
-  try {
-    const message = event.detail.message;
-    const character = event.detail.character;
-    await syncMessage(currentSession, character, message);
-  } catch (error) {
-    console.error("[Memory Keeper] Error syncing sent message:", error);
-  }
+  const validated = validateMessageEvent(event, "message_sent");
+  if (!validated) return;
+
+  await apiCall(
+    () => syncMessage(currentSession, validated.character, validated.message),
+    "Sync sent message",
+  );
 }
 
 /**
@@ -81,30 +508,37 @@ async function handleMessageSent(event) {
 async function handleMessageReceived(event) {
   if (!extensionSettings.autoSync || !currentSession) return;
 
-  try {
-    const message = event.detail.message;
-    const character = event.detail.character;
+  const validated = validateMessageEvent(event, "message_received");
+  if (!validated) return;
 
-    // Process message through Memory Keeper (extracts facts, relationships, etc.)
-    const result = await syncMessage(currentSession, character, message);
+  const { message, character } = validated;
 
-    // Check for drift if the message processing returned context
-    if (extensionSettings.detectDrift && result) {
-      const driftReport = await checkDrift(currentSession, character, message);
-      if (driftReport && driftReport.inconsistencies_detected) {
-        showDriftAlert(character, driftReport);
-      }
+  // Process message through Memory Keeper (extracts facts, relationships, etc.)
+  const result = await apiCall(
+    () => syncMessage(currentSession, character, message),
+    "Sync received message",
+  );
+
+  // Check for drift if the message processing returned context
+  if (extensionSettings.detectDrift && result) {
+    const driftReport = await apiCall(
+      () => checkDrift(currentSession, character, message),
+      "Check drift",
+    );
+    if (driftReport && driftReport.inconsistencies_detected) {
+      showDriftAlert(character, driftReport);
     }
+  }
 
-    // Inject memory context into the next prompt
-    if (extensionSettings.injectContext) {
-      const context = await getMemoryContext(currentSession, character);
-      if (context) {
-        injectContext(context);
-      }
+  // Inject memory context into the next prompt
+  if (extensionSettings.injectContext) {
+    const context = await apiCall(
+      () => getMemoryContext(currentSession, character),
+      "Get memory context",
+    );
+    if (context) {
+      injectContext(context);
     }
-  } catch (error) {
-    console.error("[Memory Keeper] Error processing received message:", error);
   }
 }
 
@@ -114,14 +548,27 @@ async function handleMessageReceived(event) {
 async function handleCharacterSelected(characterName) {
   try {
     if (!currentSession) {
-      currentSession = await createSession("SillyTavern Session");
+      const sessionId = await apiCall(
+        () => createSession("SillyTavern Session"),
+        "Create session",
+      );
+      if (sessionId) {
+        currentSession = sessionId;
+        persistSession();
+      } else {
+        return; // Cannot proceed without a session
+      }
     }
 
     if (!sessionCharacters[characterName]) {
-      sessionCharacters[characterName] = await getOrCreateCharacter(
-        currentSession,
-        characterName,
+      const charId = await apiCall(
+        () => getOrCreateCharacter(currentSession, characterName),
+        "Register character",
       );
+      if (charId) {
+        sessionCharacters[characterName] = charId;
+        persistSession();
+      }
     }
   } catch (error) {
     console.error("[Memory Keeper] Error selecting character:", error);
@@ -146,7 +593,10 @@ async function syncMessage(sessionId, character, messageText) {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to sync message: ${response.statusText}`);
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to sync message: HTTP ${response.status} ${response.statusText}${errorBody ? " - " + errorBody : ""}`,
+    );
   }
 
   return await response.json();
@@ -165,7 +615,10 @@ async function createSession(sessionName) {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to create session: ${response.statusText}`);
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to create session: HTTP ${response.status} ${response.statusText}${errorBody ? " - " + errorBody : ""}`,
+    );
   }
 
   const data = await response.json();
@@ -185,7 +638,10 @@ async function getOrCreateCharacter(sessionId, characterName) {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to create character: ${response.statusText}`);
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(
+      `Failed to create character: HTTP ${response.status} ${response.statusText}${errorBody ? " - " + errorBody : ""}`,
+    );
   }
 
   const data = await response.json();
@@ -392,6 +848,16 @@ function closePanel() {
 }
 
 /**
+ * Update the health badge in the panel header if the panel is open.
+ */
+function updatePanelHealthBadge() {
+  const badge = document.getElementById("mk-health-badge");
+  if (badge) {
+    badge.innerHTML = healthStatusHtml();
+  }
+}
+
+/**
  * Show the Memory Keeper panel with session data
  */
 async function showMemoryKeeperPanel() {
@@ -400,10 +866,13 @@ async function showMemoryKeeperPanel() {
   const panel = document.createElement("div");
   panel.className = "memory-keeper-panel";
 
-  // Header
+  // Header with health status badge
   panel.innerHTML = `
     <div class="memory-keeper-panel-header">
-      <h3 class="memory-keeper-panel-title">Memory Keeper</h3>
+      <h3 class="memory-keeper-panel-title">
+        Memory Keeper
+        <span id="mk-health-badge">${healthStatusHtml()}</span>
+      </h3>
       <button class="memory-keeper-panel-close" id="mk-close">&times;</button>
     </div>
     <div class="memory-keeper-content" id="mk-content">
@@ -552,13 +1021,12 @@ async function refreshPanel() {
     const createBtn = document.getElementById("mk-create-snapshot");
     if (createBtn) {
       createBtn.addEventListener("click", async () => {
-        try {
+        const result = await apiCall(async () => {
           const notes = prompt("Snapshot notes (optional):");
           await createSnapshot(currentSession, notes || "Manual snapshot");
           await refreshPanel();
-        } catch (e) {
-          console.error("[Memory Keeper] Snapshot error:", e);
-        }
+        }, "Create snapshot");
+        // result is undefined on success (void), null on failure — either way we are fine
       });
     }
 
@@ -567,14 +1035,11 @@ async function refreshPanel() {
       btn.addEventListener("click", async () => {
         const snapshotId = btn.getAttribute("data-snapshot-id");
         if (confirm("Rollback to this snapshot? This cannot be undone.")) {
-          try {
+          const result = await apiCall(async () => {
             await rollbackToSnapshot(currentSession, snapshotId);
             await refreshPanel();
-            if (window.toastr) window.toastr.success("Rolled back successfully.");
-          } catch (e) {
-            console.error("[Memory Keeper] Rollback error:", e);
-            if (window.toastr) window.toastr.error("Rollback failed.");
-          }
+            showToast("Rolled back successfully.", "Memory Keeper", "success");
+          }, "Rollback to snapshot");
         }
       });
     });

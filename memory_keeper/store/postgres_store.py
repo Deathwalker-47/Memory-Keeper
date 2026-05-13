@@ -887,6 +887,16 @@ class PostgresStore(BaseStore):
             )
         return arc
 
+    async def get_narrative_arc(self, arc_id: str) -> Optional[NarrativeArc]:
+        """Retrieve a single narrative arc by ID."""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM narrative_arcs WHERE arc_id = $1", arc_id
+            )
+        if row:
+            return self._row_to_arc(row)
+        return None
+
     async def get_narrative_arcs(self, session_id: str) -> List[NarrativeArc]:
         """Get all narrative arcs in a session."""
         async with self.pool.acquire() as conn:

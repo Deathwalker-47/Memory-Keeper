@@ -795,6 +795,16 @@ class SQLiteStore(BaseStore):
         await self.conn.commit()
         return arc
 
+    async def get_narrative_arc(self, arc_id: str) -> Optional[NarrativeArc]:
+        """Retrieve a single narrative arc by ID."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM narrative_arcs WHERE arc_id = ?", (arc_id,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return self._row_to_arc(row)
+        return None
+
     async def get_narrative_arcs(self, session_id: str) -> List[NarrativeArc]:
         """Get all narrative arcs in a session."""
         cursor = await self.conn.execute(

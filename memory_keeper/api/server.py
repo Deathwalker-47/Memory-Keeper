@@ -98,6 +98,8 @@ def create_app(config: Config) -> FastAPI:
         snapshots_router,
         drift_router,
         consolidation_router,
+        arcs_router,
+        search_router,
     )
     app.include_router(sessions_router)
     app.include_router(characters_router)
@@ -105,6 +107,8 @@ def create_app(config: Config) -> FastAPI:
     app.include_router(relationships_router)
     app.include_router(messages_router)
     app.include_router(memory_router)
+    app.include_router(arcs_router)
+    app.include_router(search_router)
     app.include_router(snapshots_router)
     app.include_router(drift_router)
     app.include_router(consolidation_router)
