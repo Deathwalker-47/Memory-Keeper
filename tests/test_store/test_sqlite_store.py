@@ -1,5 +1,6 @@
 """Tests for the SQLite store implementation."""
 
+import aiosqlite
 import pytest
 from memory_keeper.store.sqlite_store import SQLiteStore
 from memory_keeper.store.models import (
@@ -467,3 +468,112 @@ async def test_drift_log_nullable_character_id(store):
     assert len(logs) == 1
     assert logs[0].character_id is None
     assert logs[0].inconsistency_type == InconsistencyType.NARRATOR
+
+
+@pytest.mark.asyncio
+async def test_migration_adds_message_count(tmp_path):
+    """Opening a DB with the old schema (no message_count) should auto-migrate."""
+    db_path = str(tmp_path / "legacy.db")
+    sid = "00000000-0000-0000-0000-000000000001"
+
+    # Create a legacy database *without* the message_count column
+    async with aiosqlite.connect(db_path) as conn:
+        await conn.execute("""
+            CREATE TABLE sessions (
+                session_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived INTEGER DEFAULT 0,
+                config TEXT DEFAULT '{}'
+            )
+        """)
+        await conn.execute(
+            "INSERT INTO sessions VALUES (?, 'Old', '2025-01-01T00:00:00', '2025-01-01T00:00:00', 0, '{}')",
+            (sid,),
+        )
+        await conn.commit()
+
+    # Initialize store — migration should add the column
+    store = SQLiteStore(db_path=db_path)
+    await store.initialize()
+
+    session = await store.get_session(sid)
+    assert session is not None
+    assert session.message_count == 0
+
+    count = await store.increment_message_count(sid)
+    assert count == 1
+    await store.close()
+
+
+@pytest.mark.asyncio
+async def test_migration_makes_character_id_nullable(tmp_path):
+    """Opening a DB with NOT NULL character_id in drift_logs should auto-migrate."""
+    db_path = str(tmp_path / "legacy.db")
+    sid = "00000000-0000-0000-0000-000000000001"
+    did = "00000000-0000-0000-0000-000000000010"
+    cid = "00000000-0000-0000-0000-000000000020"
+
+    async with aiosqlite.connect(db_path) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("""
+            CREATE TABLE sessions (
+                session_id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                message_count INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived INTEGER DEFAULT 0,
+                config TEXT DEFAULT '{}'
+            )
+        """)
+        await conn.execute("""
+            CREATE TABLE drift_logs (
+                drift_id TEXT PRIMARY KEY,
+                character_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                inconsistency_type TEXT NOT NULL,
+                detected_in_message TEXT NOT NULL,
+                previous_state TEXT NOT NULL,
+                conflicting_state TEXT NOT NULL,
+                severity TEXT DEFAULT 'minor',
+                resolution TEXT,
+                timestamp TEXT NOT NULL
+            )
+        """)
+        await conn.execute(
+            "INSERT INTO sessions VALUES (?, 'Old', 0, '2025-01-01T00:00:00', '2025-01-01T00:00:00', 0, '{}')",
+            (sid,),
+        )
+        await conn.execute(
+            "INSERT INTO drift_logs VALUES (?, ?, ?, 'behavior', 'msg', 'prev', 'curr', 'minor', NULL, '2025-01-01T00:00:00')",
+            (did, cid, sid),
+        )
+        await conn.commit()
+
+    store = SQLiteStore(db_path=db_path)
+    await store.initialize()
+
+    # Old row should still be there
+    logs = await store.get_drift_logs(sid)
+    assert len(logs) == 1
+    assert logs[0].character_id is not None
+
+    # Now we should be able to insert a drift log with NULL character_id
+    drift = DriftLog(
+        character_id=None,
+        session_id=sid,
+        inconsistency_type=InconsistencyType.NARRATOR,
+        detected_in_message="tone shift",
+        previous_state="formal",
+        conflicting_state="casual",
+        severity=DriftSeverity.MINOR,
+    )
+    await store.create_drift_log(drift)
+
+    logs = await store.get_drift_logs(sid)
+    assert len(logs) == 2
+    narrator_logs = [l for l in logs if l.character_id is None]
+    assert len(narrator_logs) == 1
+    await store.close()
