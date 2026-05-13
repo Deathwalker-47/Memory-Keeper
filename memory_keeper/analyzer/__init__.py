@@ -7,6 +7,8 @@ from memory_keeper.analyzer.relationship_extractor import extract_relationships
 from memory_keeper.analyzer.drift_detector import detect_drift
 from memory_keeper.analyzer.embeddings import generate_embedding, compute_similarity
 from memory_keeper.analyzer.state_consolidator import consolidate_facts, apply_consolidation
+from memory_keeper.analyzer.narrator_analyzer import extract_narrator_state
+from memory_keeper.analyzer.arc_extractor import extract_narrative_arcs
 
 __all__ = [
     "LLMClient",
@@ -20,4 +22,6 @@ __all__ = [
     "compute_similarity",
     "consolidate_facts",
     "apply_consolidation",
+    "extract_narrator_state",
+    "extract_narrative_arcs",
 ]

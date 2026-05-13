@@ -4,6 +4,11 @@
 # Configuration mode: simple, advanced, or custom
 mode: simple
 
+# Model preset: deepseek, gemini-flash, llama, mistral, or null for manual config
+# Presets set recommended temperature, correction strength, and drift sensitivity.
+# Explicit values in this file override preset defaults.
+preset: null
+
 # LLM Provider Configuration
 llm:
   # Provider options: openai, anthropic, local
@@ -46,6 +51,18 @@ analyzer:
   
   # Minimum confidence threshold for facts (0.0-1.0)
   fact_confidence_threshold: 0.6
+
+  # Extract narrator voice characteristics (tense, perspective, tone, etc.)
+  extract_narrator_state: true
+
+  # Auto-detect and track narrative story arcs
+  extract_narrative_arcs: true
+
+  # Maximum character count for memory context block injected into prompts
+  memory_block_max_length: 2000
+
+  # Correction prompt strength when drift is detected: gentle, moderate, or firm
+  correction_strength: moderate
 
 # Database Configuration
 database:

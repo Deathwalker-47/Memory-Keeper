@@ -27,8 +27,12 @@ class AnalyzerConfig(BaseModel):
     extract_relationships: bool = True
     detect_drift: bool = True
     consolidate_memory: bool = True
+    extract_narrator_state: bool = True
+    extract_narrative_arcs: bool = True
     drift_sensitivity: Literal["low", "medium", "high"] = "medium"
     fact_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
+    memory_block_max_length: int = Field(default=2000, description="Max char count for memory context block")
+    correction_strength: Literal["gentle", "moderate", "firm"] = "moderate"
 
 
 class DatabaseConfig(BaseModel):
@@ -65,6 +69,7 @@ class Config(BaseModel):
     """Main Memory Keeper configuration."""
     
     mode: Literal["simple", "advanced", "custom"] = "simple"
+    preset: Optional[str] = Field(default=None, description="Model preset name")
     llm: LLMConfig = Field(default_factory=LLMConfig)
     analyzer: AnalyzerConfig = Field(default_factory=AnalyzerConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
@@ -83,6 +88,19 @@ def load_config(config_path: Optional[Path] = None) -> Config:
         with open(config_path) as f:
             config_dict = yaml.safe_load(f) or {}
     
+    # Apply model preset defaults (explicit config takes precedence)
+    preset_name = config_dict.get("preset")
+    if preset_name:
+        from memory_keeper.presets import get_preset
+        preset = get_preset(preset_name)
+        if preset:
+            for section, values in preset.items():
+                if section not in config_dict:
+                    config_dict[section] = {}
+                for k, v in values.items():
+                    if k not in config_dict[section]:
+                        config_dict[section][k] = v
+
     # Override with environment variables
     # Format: MK_<SECTION>__<KEY>=value
     for key, value in os.environ.items():

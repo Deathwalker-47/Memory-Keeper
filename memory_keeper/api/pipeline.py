@@ -10,6 +10,8 @@ from memory_keeper.analyzer.character_analyzer import identify_characters, extra
 from memory_keeper.analyzer.fact_extractor import extract_facts
 from memory_keeper.analyzer.relationship_extractor import extract_relationships
 from memory_keeper.analyzer.drift_detector import detect_drift
+from memory_keeper.analyzer.narrator_analyzer import extract_narrator_state
+from memory_keeper.analyzer.arc_extractor import extract_narrative_arcs
 from memory_keeper.api.context_formatter import format_memory_context
 from memory_keeper.config import AnalyzerConfig
 from memory_keeper.store.models import (
@@ -20,6 +22,9 @@ from memory_keeper.store.models import (
     FactCategory,
     RelationshipDynamic,
     CharacterState,
+    NarratorState,
+    NarrativeArc,
+    ArcStatus,
     DriftLog,
     DriftSeverity,
     InconsistencyType,
@@ -101,6 +106,7 @@ class MessagePipeline:
         drift_logs = await self.store.get_drift_logs(
             session_id, str(character.character_id)
         )
+        narrator_state = await self.store.get_narrator_state(session_id)
 
         all_chars = await self.store.get_characters(session_id)
         char_names = {str(c.character_id): c.name for c in all_chars}
@@ -113,6 +119,9 @@ class MessagePipeline:
             arcs=arcs,
             drift_warnings=drift_logs[:5],
             character_names=char_names,
+            max_length=self.analyzer_config.memory_block_max_length,
+            narrator_state=narrator_state,
+            correction_strength=self.analyzer_config.correction_strength,
         )
 
     async def _async_extraction(
@@ -139,6 +148,16 @@ class MessagePipeline:
 
             if self.analyzer_config.detect_drift:
                 tasks.append(self._detect_and_store_drift(
+                    session_id, character, message
+                ))
+
+            if self.analyzer_config.extract_narrator_state:
+                tasks.append(self._extract_and_update_narrator(
+                    session_id, message
+                ))
+
+            if self.analyzer_config.extract_narrative_arcs:
+                tasks.append(self._extract_and_store_arcs(
                     session_id, character, message
                 ))
 
@@ -270,6 +289,7 @@ class MessagePipeline:
                         "knowledge": InconsistencyType.KNOWLEDGE,
                         "relationship": InconsistencyType.RELATIONSHIP,
                         "behavior": InconsistencyType.BEHAVIOR,
+                        "narrator": InconsistencyType.NARRATOR,
                     }
                     drift = DriftLog(
                         character_id=character.character_id,
@@ -305,3 +325,90 @@ class MessagePipeline:
             await self.store.upsert_character_state(state)
         except Exception as e:
             logger.warning(f"Failed to update character state: {e}")
+
+    async def _extract_and_update_narrator(
+        self, session_id: str, message: str
+    ) -> None:
+        """Extract narrator voice characteristics and update state."""
+        try:
+            existing = await self.store.get_narrator_state(session_id)
+            previous = None
+            if existing:
+                previous = {
+                    "tense": existing.tense,
+                    "perspective": existing.perspective,
+                    "description_density": existing.description_density,
+                    "pacing": existing.pacing,
+                    "tone": existing.tone,
+                }
+
+            result = await extract_narrator_state(self.llm_client, message, previous)
+            state = NarratorState(
+                session_id=UUID(session_id),
+                tense=result.get("tense"),
+                perspective=result.get("perspective"),
+                description_density=result.get("description_density"),
+                pacing=result.get("pacing"),
+                tone=result.get("tone"),
+            )
+            await self.store.upsert_narrator_state(state)
+        except Exception as e:
+            logger.warning(f"Failed to update narrator state: {e}")
+
+    async def _extract_and_store_arcs(
+        self, session_id: str, character: CharacterIdentity, message: str
+    ) -> None:
+        """Extract narrative arc developments and create/update arcs."""
+        try:
+            existing_arcs = await self.store.get_narrative_arcs(session_id)
+            existing_dicts = [
+                {
+                    "title": a.title,
+                    "current_status": a.current_status.value,
+                    "beats": a.beats,
+                }
+                for a in existing_arcs
+            ]
+
+            raw_arcs = await extract_narrative_arcs(
+                self.llm_client, message, character.name, existing_dicts
+            )
+
+            for raw in raw_arcs:
+                try:
+                    status_str = raw.get("current_status", "setup")
+                    try:
+                        status = ArcStatus(status_str)
+                    except ValueError:
+                        status = ArcStatus.SETUP
+
+                    if raw.get("is_new", True):
+                        involved = []
+                        for char_name in raw.get("involved_characters", []):
+                            found = await self.store.find_character_by_name(session_id, char_name)
+                            if found:
+                                involved.append(found.character_id)
+                        arc = NarrativeArc(
+                            session_id=UUID(session_id),
+                            title=raw.get("title", "Untitled Arc"),
+                            involved_characters=involved,
+                            current_status=status,
+                            beats=[raw["new_beat"]] if raw.get("new_beat") else [],
+                            expected_outcome=raw.get("expected_outcome"),
+                        )
+                        await self.store.create_narrative_arc(arc)
+                    else:
+                        match_title = raw.get("existing_arc_title", raw.get("title"))
+                        for existing in existing_arcs:
+                            if existing.title == match_title:
+                                existing.current_status = status
+                                if raw.get("new_beat"):
+                                    existing.beats.append(raw["new_beat"])
+                                if raw.get("expected_outcome"):
+                                    existing.expected_outcome = raw["expected_outcome"]
+                                await self.store.update_narrative_arc(existing)
+                                break
+                except Exception as e:
+                    logger.warning(f"Failed to process arc item: {e}")
+        except Exception as e:
+            logger.warning(f"Failed to extract/store arcs: {e}")

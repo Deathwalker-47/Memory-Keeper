@@ -129,7 +129,18 @@ def init_command(config: str, mode: str):
             default=default_model
         )
         cfg.llm.model = model
-        
+
+        # Offer model preset
+        from memory_keeper.presets import list_presets
+        preset_choices = ["none"] + list_presets()
+        preset = click.prompt(
+            "Model preset (sets recommended temperature, drift sensitivity, etc.)",
+            type=click.Choice(preset_choices),
+            default="none"
+        )
+        if preset != "none":
+            cfg.preset = preset
+
         # Save configuration
         save_config(cfg, config_path)
         click.echo(f"\nConfiguration saved to {config_path}")

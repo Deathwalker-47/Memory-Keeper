@@ -19,6 +19,7 @@ async def client(tmp_path):
     store = SQLiteStore(db_path=str(config.database.sqlite_path))
     await store.initialize()
     server_module._store = store
+    server_module._config = config
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
@@ -26,6 +27,7 @@ async def client(tmp_path):
 
     await store.close()
     server_module._store = None
+    server_module._config = None
 
 
 @pytest.mark.asyncio
