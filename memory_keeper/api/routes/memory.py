@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from memory_keeper.api.context_formatter import format_memory_context
 from memory_keeper.api.schemas import MemoryContextResponse
 from memory_keeper.api.server import get_store
+from memory_keeper.config import load_config
 from memory_keeper.store.sqlite_store import SQLiteStore
 
 router = APIRouter(prefix="/sessions/{session_id}/memory", tags=["memory"])
@@ -30,16 +31,22 @@ async def get_memory_context(
     if not char:
         raise HTTPException(status_code=404, detail=f"Character '{character}' not found")
 
+    config = load_config()
+
     # Gather all relevant data
     state = await store.get_character_state(str(char.character_id), session_id)
     facts = await store.get_facts(session_id)
     relationships = await store.get_relationships(session_id)
     arcs = await store.get_narrative_arcs(session_id)
     drift_logs = await store.get_drift_logs(session_id, str(char.character_id))
+    narrator_state = await store.get_narrator_state(session_id)
 
     # Build character name lookup
     all_chars = await store.get_characters(session_id)
     char_names = {str(c.character_id): c.name for c in all_chars}
+
+    # Use config budget unless overridden by query param
+    effective_max = max_length if max_length != 2000 else config.analyzer.memory_block_max_length
 
     context = format_memory_context(
         character=char,
@@ -49,7 +56,9 @@ async def get_memory_context(
         arcs=arcs,
         drift_warnings=drift_logs[:5],
         character_names=char_names,
-        max_length=max_length,
+        max_length=effective_max,
+        narrator_state=narrator_state,
+        correction_strength=config.analyzer.correction_strength,
     )
 
     return MemoryContextResponse(

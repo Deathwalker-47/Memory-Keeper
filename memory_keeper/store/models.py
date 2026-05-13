@@ -37,6 +37,7 @@ class InconsistencyType(str, Enum):
     RELATIONSHIP = "relationship"
     KNOWLEDGE = "knowledge"
     BEHAVIOR = "behavior"
+    NARRATOR = "narrator"
 
 
 class ArcStatus(str, Enum):
@@ -104,6 +105,18 @@ class CharacterState(BaseModel):
     location: Optional[str] = None
     current_goal: Optional[str] = None
     recent_memory: Optional[str] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+
+class NarratorState(BaseModel):
+    """Tracks narrative voice consistency."""
+    narrator_id: UUID = Field(default_factory=uuid4)
+    session_id: UUID
+    tense: Optional[str] = None
+    perspective: Optional[str] = None
+    description_density: Optional[str] = None
+    pacing: Optional[str] = None
+    tone: Optional[str] = None
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
 

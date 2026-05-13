@@ -15,6 +15,7 @@ from memory_keeper.store.models import (
     Fact,
     FactCategory,
     CharacterState,
+    NarratorState,
     RelationshipDynamic,
     Event,
     NarrativeArc,
@@ -181,10 +182,23 @@ class SQLiteStore:
             FOREIGN KEY (session_id) REFERENCES sessions(session_id)
         );
         
+        CREATE TABLE IF NOT EXISTS narrator_states (
+            narrator_id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            tense TEXT,
+            perspective TEXT,
+            description_density TEXT,
+            pacing TEXT,
+            tone TEXT,
+            timestamp TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_characters_session ON characters(session_id);
         CREATE INDEX IF NOT EXISTS idx_facts_session ON facts(session_id);
         CREATE INDEX IF NOT EXISTS idx_relationships_session ON relationships(session_id);
         CREATE INDEX IF NOT EXISTS idx_drift_logs_session ON drift_logs(session_id);
+        CREATE INDEX IF NOT EXISTS idx_narrator_states_session ON narrator_states(session_id);
         """
         
         await self.conn.executescript(schema)
@@ -622,6 +636,50 @@ class SQLiteStore:
         await self.conn.commit()
         return character
 
+    # Narrator state operations
+    async def upsert_narrator_state(self, state: NarratorState) -> NarratorState:
+        """Insert or replace narrator state for a session (one per session)."""
+        await self.conn.execute(
+            """
+            INSERT OR REPLACE INTO narrator_states
+            (narrator_id, session_id, tense, perspective, description_density,
+             pacing, tone, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                str(state.narrator_id),
+                str(state.session_id),
+                state.tense,
+                state.perspective,
+                state.description_density,
+                state.pacing,
+                state.tone,
+                state.timestamp.isoformat(),
+            ),
+        )
+        await self.conn.commit()
+        return state
+
+    async def get_narrator_state(self, session_id: str) -> Optional[NarratorState]:
+        """Get narrator state for a session."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM narrator_states WHERE session_id = ? ORDER BY timestamp DESC LIMIT 1",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        if not row:
+            return None
+        return NarratorState(
+            narrator_id=UUID(row["narrator_id"]),
+            session_id=UUID(row["session_id"]),
+            tense=row["tense"],
+            perspective=row["perspective"],
+            description_density=row["description_density"],
+            pacing=row["pacing"],
+            tone=row["tone"],
+            timestamp=datetime.fromisoformat(row["timestamp"]),
+        )
+
     # Relationship update
     async def update_relationship(self, rel: RelationshipDynamic) -> RelationshipDynamic:
         """Update an existing relationship."""
@@ -1030,6 +1088,13 @@ class SQLiteStore:
         )
         await self.conn.commit()
 
+    async def clear_session_narrator_states(self, session_id: str) -> None:
+        """Delete narrator state for a session."""
+        await self.conn.execute(
+            "DELETE FROM narrator_states WHERE session_id = ?", (str(session_id),)
+        )
+        await self.conn.commit()
+
     async def clear_session_data(self, session_id: str) -> None:
         """Clear all entity data for a session (used during rollback).
 
@@ -1039,6 +1104,7 @@ class SQLiteStore:
         """
         await self.clear_session_character_states(session_id)
         await self.clear_session_behavioral_signatures(session_id)
+        await self.clear_session_narrator_states(session_id)
         await self.clear_session_drift_logs(session_id)
         await self.clear_session_events(session_id)
         await self.clear_session_narrative_arcs(session_id)
