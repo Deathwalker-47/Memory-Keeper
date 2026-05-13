@@ -5,14 +5,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from memory_keeper.api.schemas import CharacterCreate, CharacterUpdate
 from memory_keeper.api.server import get_store
 from memory_keeper.store.models import CharacterIdentity, CharacterTier, SpeechPatterns
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.store.base import BaseStore
 
 router = APIRouter(prefix="/sessions/{session_id}/characters", tags=["characters"])
 
 
 @router.post("")
 async def create_character(
-    session_id: str, body: CharacterCreate, store: SQLiteStore = Depends(get_store)
+    session_id: str, body: CharacterCreate, store: BaseStore = Depends(get_store)
 ):
     """Create a new character in a session."""
     from uuid import UUID
@@ -36,7 +36,7 @@ async def create_character(
 
 
 @router.get("")
-async def list_characters(session_id: str, store: SQLiteStore = Depends(get_store)):
+async def list_characters(session_id: str, store: BaseStore = Depends(get_store)):
     """List all active characters in a session."""
     characters = await store.get_characters(session_id)
     return [c.model_dump(mode="json") for c in characters]
@@ -44,7 +44,7 @@ async def list_characters(session_id: str, store: SQLiteStore = Depends(get_stor
 
 @router.get("/{character_id}")
 async def get_character(
-    session_id: str, character_id: str, store: SQLiteStore = Depends(get_store)
+    session_id: str, character_id: str, store: BaseStore = Depends(get_store)
 ):
     """Get a character by ID."""
     character = await store.get_character(character_id)
@@ -58,7 +58,7 @@ async def update_character(
     session_id: str,
     character_id: str,
     body: CharacterUpdate,
-    store: SQLiteStore = Depends(get_store),
+    store: BaseStore = Depends(get_store),
 ):
     """Update a character."""
     character = await store.get_character(character_id)

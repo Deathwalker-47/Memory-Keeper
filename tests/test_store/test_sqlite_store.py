@@ -417,3 +417,53 @@ async def test_search_facts_by_embedding(store):
     assert len(results) == 2
     assert results[0].subject == "safehouse"  # Most similar
     assert results[1].subject == "church"  # Second most similar
+
+
+@pytest.mark.asyncio
+async def test_increment_message_count(store):
+    """Test incrementing session message count."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    count1 = await store.increment_message_count(str(session.session_id))
+    assert count1 == 1
+
+    count2 = await store.increment_message_count(str(session.session_id))
+    assert count2 == 2
+
+
+@pytest.mark.asyncio
+async def test_message_count_in_session(store):
+    """Test that message count is reflected in get_session."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    await store.increment_message_count(str(session.session_id))
+    await store.increment_message_count(str(session.session_id))
+    await store.increment_message_count(str(session.session_id))
+
+    fetched = await store.get_session(str(session.session_id))
+    assert fetched.message_count == 3
+
+
+@pytest.mark.asyncio
+async def test_drift_log_nullable_character_id(store):
+    """Test drift log with character_id=None and NARRATOR inconsistency type."""
+    session = Session(name="Test")
+    await store.create_session(session)
+
+    drift = DriftLog(
+        character_id=None,
+        session_id=session.session_id,
+        inconsistency_type=InconsistencyType.NARRATOR,
+        detected_in_message="The narrator suddenly changed tone",
+        previous_state="formal third-person",
+        conflicting_state="casual first-person",
+        severity=DriftSeverity.MODERATE,
+    )
+    await store.create_drift_log(drift)
+
+    logs = await store.get_drift_logs(str(session.session_id))
+    assert len(logs) == 1
+    assert logs[0].character_id is None
+    assert logs[0].inconsistency_type == InconsistencyType.NARRATOR

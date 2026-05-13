@@ -29,6 +29,7 @@ class AnalyzerConfig(BaseModel):
     consolidate_memory: bool = True
     extract_narrator_state: bool = True
     extract_narrative_arcs: bool = True
+    detect_narrator_drift: bool = True
     drift_sensitivity: Literal["low", "medium", "high"] = "medium"
     fact_confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0)
     memory_block_max_length: int = Field(default=2000, description="Max char count for memory context block")

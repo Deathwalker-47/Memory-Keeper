@@ -6,7 +6,7 @@ from loguru import logger
 from memory_keeper.api.server import get_store
 from memory_keeper.analyzer.state_consolidator import consolidate_facts, apply_consolidation
 from memory_keeper.analyzer.llm_client import LLMClient
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.store.base import BaseStore
 
 router = APIRouter(prefix="/sessions/{session_id}", tags=["consolidation"])
 
@@ -16,7 +16,7 @@ async def consolidate_session_facts(
     session_id: str,
     character_name: str = Query(default="", description="Focus on a specific character"),
     auto_apply: bool = Query(default=False, description="Automatically deactivate redundant facts"),
-    store: SQLiteStore = Depends(get_store),
+    store: BaseStore = Depends(get_store),
 ):
     """Analyze session facts for redundancy and conflicts.
 

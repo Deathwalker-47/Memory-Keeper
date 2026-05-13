@@ -6,7 +6,7 @@ from memory_keeper.api.context_formatter import format_memory_context
 from memory_keeper.api.schemas import MemoryContextResponse
 from memory_keeper.api.server import get_store, get_config
 from memory_keeper.config import Config
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.store.base import BaseStore
 
 router = APIRouter(prefix="/sessions/{session_id}/memory", tags=["memory"])
 
@@ -16,7 +16,7 @@ async def get_memory_context(
     session_id: str,
     character: str = Query(..., description="Character name to retrieve context for"),
     max_length: int = Query(2000, description="Max context length in characters"),
-    store: SQLiteStore = Depends(get_store),
+    store: BaseStore = Depends(get_store),
     config: Config = Depends(get_config),
 ):
     """Get formatted memory context block for a character.

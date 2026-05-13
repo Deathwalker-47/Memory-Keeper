@@ -11,9 +11,10 @@ from memory_keeper.analyzer.fact_extractor import extract_facts
 from memory_keeper.analyzer.relationship_extractor import extract_relationships
 from memory_keeper.analyzer.drift_detector import detect_drift
 from memory_keeper.analyzer.narrator_analyzer import extract_narrator_state
+from memory_keeper.analyzer.narrator_drift_detector import detect_narrator_drift
 from memory_keeper.analyzer.arc_extractor import extract_narrative_arcs
 from memory_keeper.api.context_formatter import format_memory_context
-from memory_keeper.config import AnalyzerConfig
+from memory_keeper.config import AnalyzerConfig, SessionConfig
 from memory_keeper.store.models import (
     CharacterIdentity,
     CharacterTier,
@@ -30,7 +31,7 @@ from memory_keeper.store.models import (
     InconsistencyType,
     MemorySnapshot,
 )
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.store.base import BaseStore
 
 logger = logging.getLogger(__name__)
 
@@ -43,13 +44,15 @@ class MessagePipeline:
 
     def __init__(
         self,
-        store: SQLiteStore,
+        store: BaseStore,
         llm_client: Optional[LLMClient],
         analyzer_config: AnalyzerConfig,
+        session_config: Optional[SessionConfig] = None,
     ):
         self.store = store
         self.llm_client = llm_client
         self.analyzer_config = analyzer_config
+        self.session_config = session_config or SessionConfig()
 
     async def process_message(
         self, session_id: str, character_name: str, message_content: str
@@ -85,6 +88,9 @@ class MessagePipeline:
                     session_id, character, message_content, session.name
                 )
             )
+
+        # ASYNC: Increment message count and maybe auto-snapshot
+        asyncio.create_task(self._maybe_auto_snapshot(session_id))
 
         return {
             "session_id": session_id,
@@ -159,6 +165,11 @@ class MessagePipeline:
             if self.analyzer_config.extract_narrative_arcs:
                 tasks.append(self._extract_and_store_arcs(
                     session_id, character, message
+                ))
+
+            if self.analyzer_config.detect_narrator_drift:
+                tasks.append(self._detect_and_store_narrator_drift(
+                    session_id, message
                 ))
 
             # Also extract character info to update state
@@ -412,3 +423,94 @@ class MessagePipeline:
                     logger.warning(f"Failed to process arc item: {e}")
         except Exception as e:
             logger.warning(f"Failed to extract/store arcs: {e}")
+
+    async def _detect_and_store_narrator_drift(
+        self, session_id: str, message: str
+    ) -> None:
+        """Detect narrator voice drift and store results."""
+        try:
+            existing = await self.store.get_narrator_state(session_id)
+            if not existing:
+                return
+
+            prev_dict = {
+                "tense": existing.tense,
+                "perspective": existing.perspective,
+                "description_density": existing.description_density,
+                "pacing": existing.pacing,
+                "tone": existing.tone,
+            }
+
+            result = await detect_narrator_drift(self.llm_client, message, prev_dict)
+
+            if result.get("drift_detected"):
+                severity_map = {
+                    "minor": DriftSeverity.MINOR,
+                    "moderate": DriftSeverity.MODERATE,
+                    "severe": DriftSeverity.SEVERE,
+                }
+                for item in result.get("drift_items", []):
+                    try:
+                        drift = DriftLog(
+                            character_id=None,
+                            session_id=UUID(session_id),
+                            inconsistency_type=InconsistencyType.NARRATOR,
+                            detected_in_message=message[:500],
+                            previous_state=f"{item.get('dimension', 'unknown')}: {item.get('previous_value', '')}",
+                            conflicting_state=f"{item.get('dimension', 'unknown')}: {item.get('current_value', '')}",
+                            severity=severity_map.get(
+                                result.get("severity", "minor"), DriftSeverity.MINOR
+                            ),
+                        )
+                        await self.store.create_drift_log(drift)
+                    except Exception as e:
+                        logger.warning(f"Failed to store narrator drift log: {e}")
+        except Exception as e:
+            logger.warning(f"Narrator drift detection failed for session {session_id}: {e}")
+
+    async def _maybe_auto_snapshot(self, session_id: str) -> None:
+        """Increment message count and create auto-snapshot if interval reached."""
+        try:
+            new_count = await self.store.increment_message_count(session_id)
+            interval = self.session_config.auto_snapshot_interval
+            if interval <= 0:
+                return
+            if new_count % interval == 0:
+                await self._create_auto_snapshot(session_id, new_count)
+        except Exception as e:
+            logger.warning(f"Auto-snapshot check failed for session {session_id}: {e}")
+
+    async def _create_auto_snapshot(self, session_id: str, msg_count: int) -> None:
+        """Create an automatic snapshot and enforce max limit."""
+        try:
+            session = await self.store.get_session(session_id)
+            characters = await self.store.get_characters(session_id)
+            facts = await self.store.get_facts(session_id)
+            relationships = await self.store.get_relationships(session_id)
+            events = await self.store.get_events(session_id)
+            arcs = await self.store.get_narrative_arcs(session_id)
+            drift_logs = await self.store.get_drift_logs(session_id)
+
+            snapshot_data = {
+                "session": session.model_dump(mode="json") if session else {},
+                "characters": [c.model_dump(mode="json") for c in characters],
+                "facts": [f.model_dump(mode="json") for f in facts],
+                "relationships": [r.model_dump(mode="json") for r in relationships],
+                "events": [e.model_dump(mode="json") for e in events],
+                "narrative_arcs": [a.model_dump(mode="json") for a in arcs],
+                "drift_logs": [d.model_dump(mode="json") for d in drift_logs],
+            }
+
+            snapshot = MemorySnapshot(
+                session_id=UUID(session_id),
+                snapshot_data=snapshot_data,
+                created_by="auto",
+                notes=f"Auto-snapshot at message {msg_count}",
+            )
+            await self.store.create_snapshot(snapshot)
+            await self.store.delete_oldest_snapshots(
+                session_id, keep=self.session_config.max_snapshots_per_session
+            )
+            logger.info(f"Auto-snapshot created for session {session_id} at message {msg_count}")
+        except Exception as e:
+            logger.error(f"Failed to create auto-snapshot for session {session_id}: {e}")

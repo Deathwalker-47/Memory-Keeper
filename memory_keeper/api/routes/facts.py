@@ -7,14 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from memory_keeper.api.schemas import FactCreate
 from memory_keeper.api.server import get_store
 from memory_keeper.store.models import Fact, FactCategory
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.store.base import BaseStore
 
 router = APIRouter(prefix="/sessions/{session_id}/facts", tags=["facts"])
 
 
 @router.post("")
 async def create_fact(
-    session_id: str, body: FactCreate, store: SQLiteStore = Depends(get_store)
+    session_id: str, body: FactCreate, store: BaseStore = Depends(get_store)
 ):
     """Create a new fact."""
     session = await store.get_session(session_id)
@@ -38,7 +38,7 @@ async def create_fact(
 async def list_facts(
     session_id: str,
     active_only: bool = Query(True),
-    store: SQLiteStore = Depends(get_store),
+    store: BaseStore = Depends(get_store),
 ):
     """List facts for a session."""
     facts = await store.get_facts(session_id, active_only=active_only)
@@ -47,7 +47,7 @@ async def list_facts(
 
 @router.delete("/{fact_id}")
 async def deactivate_fact(
-    session_id: str, fact_id: str, store: SQLiteStore = Depends(get_store)
+    session_id: str, fact_id: str, store: BaseStore = Depends(get_store)
 ):
     """Deactivate a fact."""
     await store.deactivate_fact(fact_id)

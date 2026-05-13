@@ -61,6 +61,7 @@ class Session(BaseModel):
     """Root container for a roleplay scenario."""
     session_id: UUID = Field(default_factory=uuid4)
     name: str
+    message_count: int = 0
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     archived: bool = False
@@ -174,7 +175,7 @@ class NarrativeArc(BaseModel):
 class DriftLog(BaseModel):
     """Record of detected character inconsistencies."""
     drift_id: UUID = Field(default_factory=uuid4)
-    character_id: UUID
+    character_id: Optional[UUID] = None
     session_id: UUID
     inconsistency_type: InconsistencyType
     detected_in_message: str
