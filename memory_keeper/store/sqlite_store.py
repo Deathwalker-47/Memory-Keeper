@@ -28,7 +28,10 @@ from memory_keeper.store.models import (
 )
 
 
-class SQLiteStore:
+from memory_keeper.store.base import BaseStore
+
+
+class SQLiteStore(BaseStore):
     """SQLite-based implementation of memory store."""
     
     def __init__(self, db_path: str = "memory_keeper.db"):
@@ -55,6 +58,7 @@ class SQLiteStore:
         CREATE TABLE IF NOT EXISTS sessions (
             session_id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
+            message_count INTEGER DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             archived INTEGER DEFAULT 0,
@@ -145,7 +149,7 @@ class SQLiteStore:
         
         CREATE TABLE IF NOT EXISTS drift_logs (
             drift_id TEXT PRIMARY KEY,
-            character_id TEXT NOT NULL,
+            character_id TEXT,
             session_id TEXT NOT NULL,
             inconsistency_type TEXT NOT NULL,
             detected_in_message TEXT NOT NULL,
@@ -154,7 +158,6 @@ class SQLiteStore:
             severity TEXT DEFAULT 'minor',
             resolution TEXT,
             timestamp TEXT NOT NULL,
-            FOREIGN KEY (character_id) REFERENCES characters(character_id),
             FOREIGN KEY (session_id) REFERENCES sessions(session_id)
         );
         
@@ -203,18 +206,63 @@ class SQLiteStore:
         
         await self.conn.executescript(schema)
         await self.conn.commit()
-    
+
+        await self._run_migrations()
+
+    async def _run_migrations(self) -> None:
+        """Apply schema migrations for existing databases."""
+        # Collect existing columns per table to avoid duplicate ALTER TABLEs
+        async def _has_column(table: str, column: str) -> bool:
+            cursor = await self.conn.execute(f"PRAGMA table_info({table})")
+            cols = await cursor.fetchall()
+            return any(c["name"] == column for c in cols)
+
+        # Migration: sessions.message_count (added in Phase 2)
+        if not await _has_column("sessions", "message_count"):
+            await self.conn.execute(
+                "ALTER TABLE sessions ADD COLUMN message_count INTEGER DEFAULT 0"
+            )
+
+        # Migration: drift_logs.character_id nullable (was NOT NULL before Phase 2)
+        # SQLite cannot ALTER COLUMN, so rebuild the table if the column is NOT NULL
+        cursor = await self.conn.execute("PRAGMA table_info(drift_logs)")
+        drift_cols = await cursor.fetchall()
+        for col in drift_cols:
+            if col["name"] == "character_id" and col["notnull"]:
+                await self.conn.executescript("""
+                    ALTER TABLE drift_logs RENAME TO _drift_logs_old;
+                    CREATE TABLE drift_logs (
+                        drift_id TEXT PRIMARY KEY,
+                        character_id TEXT,
+                        session_id TEXT NOT NULL,
+                        inconsistency_type TEXT NOT NULL,
+                        detected_in_message TEXT NOT NULL,
+                        previous_state TEXT NOT NULL,
+                        conflicting_state TEXT NOT NULL,
+                        severity TEXT DEFAULT 'minor',
+                        resolution TEXT,
+                        timestamp TEXT NOT NULL,
+                        FOREIGN KEY (session_id) REFERENCES sessions(session_id)
+                    );
+                    INSERT INTO drift_logs SELECT * FROM _drift_logs_old;
+                    DROP TABLE _drift_logs_old;
+                """)
+                break
+
+        await self.conn.commit()
+
     # Session operations
     async def create_session(self, session: Session) -> Session:
         """Create a new session."""
         await self.conn.execute(
             """
-            INSERT INTO sessions (session_id, name, created_at, updated_at, config)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO sessions (session_id, name, message_count, created_at, updated_at, config)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
                 str(session.session_id),
                 session.name,
+                session.message_count,
                 session.created_at.isoformat(),
                 session.updated_at.isoformat(),
                 json.dumps(session.config),
@@ -231,33 +279,27 @@ class SQLiteStore:
         )
         row = await cursor.fetchone()
         if row:
-            return Session(
-                session_id=UUID(row["session_id"]),
-                name=row["name"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-                archived=bool(row["archived"]),
-                config=json.loads(row["config"]),
-            )
+            return self._row_to_session(row)
         return None
-    
+
     async def list_sessions(self) -> List[Session]:
         """List all non-archived sessions."""
         cursor = await self.conn.execute(
             "SELECT * FROM sessions WHERE archived = 0 ORDER BY updated_at DESC"
         )
         rows = await cursor.fetchall()
-        return [
-            Session(
-                session_id=UUID(row["session_id"]),
-                name=row["name"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-                archived=bool(row["archived"]),
-                config=json.loads(row["config"]),
-            )
-            for row in rows
-        ]
+        return [self._row_to_session(row) for row in rows]
+
+    def _row_to_session(self, row) -> Session:
+        return Session(
+            session_id=UUID(row["session_id"]),
+            name=row["name"],
+            message_count=row["message_count"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            archived=bool(row["archived"]),
+            config=json.loads(row["config"]),
+        )
     
     async def update_session(self, session: Session) -> Session:
         """Update an existing session."""
@@ -284,7 +326,21 @@ class SQLiteStore:
             (session_id,),
         )
         await self.conn.commit()
-    
+
+    async def increment_message_count(self, session_id: str) -> int:
+        """Increment and return the new message count."""
+        await self.conn.execute(
+            "UPDATE sessions SET message_count = message_count + 1 WHERE session_id = ?",
+            (session_id,),
+        )
+        await self.conn.commit()
+        cursor = await self.conn.execute(
+            "SELECT message_count FROM sessions WHERE session_id = ?",
+            (session_id,),
+        )
+        row = await cursor.fetchone()
+        return row["message_count"]
+
     # Character operations
     async def create_character(self, character: CharacterIdentity) -> CharacterIdentity:
         """Create a new character."""
@@ -783,6 +839,16 @@ class SQLiteStore:
         await self.conn.commit()
         return arc
 
+    async def get_narrative_arc(self, arc_id: str) -> Optional[NarrativeArc]:
+        """Retrieve a single narrative arc by ID."""
+        cursor = await self.conn.execute(
+            "SELECT * FROM narrative_arcs WHERE arc_id = ?", (arc_id,)
+        )
+        row = await cursor.fetchone()
+        if row:
+            return self._row_to_arc(row)
+        return None
+
     async def get_narrative_arcs(self, session_id: str) -> List[NarrativeArc]:
         """Get all narrative arcs in a session."""
         cursor = await self.conn.execute(
@@ -838,7 +904,7 @@ class SQLiteStore:
             """,
             (
                 str(drift.drift_id),
-                str(drift.character_id),
+                str(drift.character_id) if drift.character_id else None,
                 str(drift.session_id),
                 drift.inconsistency_type.value,
                 drift.detected_in_message,
@@ -869,7 +935,7 @@ class SQLiteStore:
         return [
             DriftLog(
                 drift_id=UUID(row["drift_id"]),
-                character_id=UUID(row["character_id"]),
+                character_id=UUID(row["character_id"]) if row["character_id"] else None,
                 session_id=UUID(row["session_id"]),
                 inconsistency_type=InconsistencyType(row["inconsistency_type"]),
                 detected_in_message=row["detected_in_message"],

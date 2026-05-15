@@ -317,3 +317,32 @@
 .memory-keeper-panel::-webkit-scrollbar-thumb:hover {
   background: #5a6578;
 }
+
+/* Settings UI */
+.memory-keeper-settings-container {
+  margin-bottom: 12px;
+}
+
+.memory-keeper-setting-row {
+  margin-bottom: 10px;
+}
+
+.memory-keeper-setting-row label {
+  display: block;
+  font-size: 13px;
+  color: #cbd5e0;
+  margin-bottom: 4px;
+}
+
+.memory-keeper-setting-row .checkbox_label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.memory-keeper-setting-row input[type="text"],
+.memory-keeper-setting-row input[type="number"] {
+  width: 100%;
+  box-sizing: border-box;
+}

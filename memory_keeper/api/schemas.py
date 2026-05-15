@@ -99,6 +99,39 @@ class SnapshotCreate(BaseModel):
     created_by: Optional[str] = None
 
 
+# --- Narrative Arc schemas ---
+
+class ArcCreate(BaseModel):
+    title: str
+    involved_characters: List[str] = Field(default_factory=list, description="Character IDs")
+    current_status: str = "setup"
+    beats: List[str] = Field(default_factory=list)
+    expected_outcome: Optional[str] = None
+
+
+class ArcUpdate(BaseModel):
+    title: Optional[str] = None
+    current_status: Optional[str] = None
+    beats: Optional[List[str]] = None
+    expected_outcome: Optional[str] = None
+
+
+# --- Search schemas ---
+
+class SearchRequest(BaseModel):
+    query: str
+    limit: int = Field(default=10, ge=1, le=100)
+
+
+class SearchResult(BaseModel):
+    fact_id: str
+    subject: str
+    predicate: str
+    object: str
+    confidence: float
+    similarity: float
+
+
 # --- Drift schemas ---
 
 class DriftCheckRequest(BaseModel):

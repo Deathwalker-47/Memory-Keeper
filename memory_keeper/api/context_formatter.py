@@ -49,7 +49,8 @@ def _build_correction_note(
 
     items = ""
     for d in drift_warnings[:3]:
-        items += f"- {prefix} {d.previous_state} — but observed: {d.conflicting_state}\n"
+        source = "Narrative Voice" if d.character_id is None else character_name
+        items += f"- {prefix} [{source}] {d.previous_state} — but observed: {d.conflicting_state}\n"
 
     note = template.format(name=character_name, items=items)
     return f"\n[CORRECTION_NOTE_START]\n{note}[CORRECTION_NOTE_END]"
@@ -167,7 +168,8 @@ def format_memory_context(
     if drift_warnings and budget > 80:
         drift_text = "## Consistency Warnings\n"
         for d in drift_warnings[:3]:
-            line = f"- [{d.severity.value.upper()}] {prefix} {d.conflicting_state}\n"
+            source = "Narrative Voice" if d.character_id is None else character.name
+            line = f"- [{d.severity.value.upper()}] {prefix} [{source}] {d.conflicting_state}\n"
             if budget - len(drift_text) - len(line) < 20:
                 break
             drift_text += line

@@ -4,14 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from memory_keeper.api.schemas import DriftCheckRequest
 from memory_keeper.api.server import get_store
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.store.base import BaseStore
 
 router = APIRouter(prefix="/sessions/{session_id}/drift", tags=["drift"])
 
 
 @router.post("")
 async def check_drift(
-    session_id: str, body: DriftCheckRequest, store: SQLiteStore = Depends(get_store)
+    session_id: str, body: DriftCheckRequest, store: BaseStore = Depends(get_store)
 ):
     """Run drift detection for a character against a message.
 
@@ -79,7 +79,7 @@ async def check_drift(
 async def get_drift_logs(
     session_id: str,
     character_id: str = Query(None),
-    store: SQLiteStore = Depends(get_store),
+    store: BaseStore = Depends(get_store),
 ):
     """Get drift logs for a session."""
     logs = await store.get_drift_logs(session_id, character_id)

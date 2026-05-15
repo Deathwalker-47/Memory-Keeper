@@ -7,17 +7,18 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from memory_keeper.config import Config
+from memory_keeper.store.base import BaseStore
 from memory_keeper.store.sqlite_store import SQLiteStore
 
 
 # Global store instance
-_store: Optional[SQLiteStore] = None
+_store: Optional[BaseStore] = None
 
 
 _config: Optional[Config] = None
 
 
-async def get_store() -> SQLiteStore:
+async def get_store() -> BaseStore:
     """Get the global store instance."""
     global _store
     if _store is None:
@@ -41,7 +42,13 @@ async def lifespan(app: FastAPI):
     # Startup
     config = app.state.config
     _config = config
-    _store = SQLiteStore(db_path=str(config.database.sqlite_path))
+
+    if config.database.backend == "postgres":
+        from memory_keeper.store.postgres_store import PostgresStore
+        _store = PostgresStore(dsn=config.database.postgres_url)
+    else:
+        _store = SQLiteStore(db_path=str(config.database.sqlite_path))
+
     await _store.initialize()
     
     yield
@@ -91,6 +98,8 @@ def create_app(config: Config) -> FastAPI:
         snapshots_router,
         drift_router,
         consolidation_router,
+        arcs_router,
+        search_router,
     )
     app.include_router(sessions_router)
     app.include_router(characters_router)
@@ -98,6 +107,8 @@ def create_app(config: Config) -> FastAPI:
     app.include_router(relationships_router)
     app.include_router(messages_router)
     app.include_router(memory_router)
+    app.include_router(arcs_router)
+    app.include_router(search_router)
     app.include_router(snapshots_router)
     app.include_router(drift_router)
     app.include_router(consolidation_router)

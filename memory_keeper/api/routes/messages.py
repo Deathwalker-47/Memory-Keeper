@@ -3,18 +3,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from memory_keeper.api.schemas import MessageRequest, MessageResponse
-from memory_keeper.api.server import get_store
+from memory_keeper.api.server import get_store, get_config
 from memory_keeper.api.pipeline import MessagePipeline
-from memory_keeper.config import load_config
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.config import Config
+from memory_keeper.store.base import BaseStore
 
 router = APIRouter(prefix="/sessions/{session_id}/messages", tags=["messages"])
 
 
-def _get_pipeline(store: SQLiteStore) -> MessagePipeline:
+def _get_pipeline(store: BaseStore, config: Config) -> MessagePipeline:
     """Create a MessagePipeline with the current config."""
-    config = load_config()
-
     llm_client = None
     if config.analyzer.enabled:
         try:
@@ -27,12 +25,16 @@ def _get_pipeline(store: SQLiteStore) -> MessagePipeline:
         store=store,
         llm_client=llm_client,
         analyzer_config=config.analyzer,
+        session_config=config.session,
     )
 
 
 @router.post("", response_model=MessageResponse)
 async def process_message(
-    session_id: str, body: MessageRequest, store: SQLiteStore = Depends(get_store)
+    session_id: str,
+    body: MessageRequest,
+    store: BaseStore = Depends(get_store),
+    config: Config = Depends(get_config),
 ):
     """Process a message through the memory pipeline.
 
@@ -46,7 +48,7 @@ async def process_message(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    pipeline = _get_pipeline(store)
+    pipeline = _get_pipeline(store, config)
 
     try:
         result = await pipeline.process_message(

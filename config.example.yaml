@@ -46,6 +46,9 @@ analyzer:
   # Consolidate memory when size exceeds threshold
   consolidate_memory: true
   
+  # Detect narrator voice drift (tense, perspective, tone shifts)
+  detect_narrator_drift: true
+
   # Drift detection sensitivity: low, medium, or high
   drift_sensitivity: medium
   

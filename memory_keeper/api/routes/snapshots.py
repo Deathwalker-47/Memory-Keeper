@@ -23,14 +23,14 @@ from memory_keeper.store.models import (
     InconsistencyType,
     SpeechPatterns,
 )
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.store.base import BaseStore
 
 router = APIRouter(prefix="/sessions/{session_id}", tags=["snapshots"])
 
 
 @router.post("/snapshots")
 async def create_snapshot(
-    session_id: str, body: SnapshotCreate, store: SQLiteStore = Depends(get_store)
+    session_id: str, body: SnapshotCreate, store: BaseStore = Depends(get_store)
 ):
     """Create a memory snapshot of the current session state."""
     session = await store.get_session(session_id)
@@ -70,7 +70,7 @@ async def create_snapshot(
 
 
 @router.get("/snapshots")
-async def list_snapshots(session_id: str, store: SQLiteStore = Depends(get_store)):
+async def list_snapshots(session_id: str, store: BaseStore = Depends(get_store)):
     """List all snapshots for a session."""
     snapshots = await store.list_snapshots(session_id)
     # Return without the full snapshot_data to keep response light
@@ -88,7 +88,7 @@ async def list_snapshots(session_id: str, store: SQLiteStore = Depends(get_store
 
 @router.post("/rollback/{snapshot_id}")
 async def rollback_to_snapshot(
-    session_id: str, snapshot_id: str, store: SQLiteStore = Depends(get_store)
+    session_id: str, snapshot_id: str, store: BaseStore = Depends(get_store)
 ):
     """Rollback session to a previous snapshot state.
 
@@ -242,7 +242,7 @@ async def rollback_to_snapshot(
     }
 
 
-async def _create_safety_snapshot(session_id: str, store: SQLiteStore) -> MemorySnapshot:
+async def _create_safety_snapshot(session_id: str, store: BaseStore) -> MemorySnapshot:
     """Create a pre-rollback safety snapshot of current state."""
     characters = await store.get_characters(session_id)
     facts = await store.get_facts(session_id)

@@ -7,14 +7,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from memory_keeper.api.schemas import RelationshipCreate
 from memory_keeper.api.server import get_store
 from memory_keeper.store.models import RelationshipDynamic
-from memory_keeper.store.sqlite_store import SQLiteStore
+from memory_keeper.store.base import BaseStore
 
 router = APIRouter(prefix="/sessions/{session_id}/relationships", tags=["relationships"])
 
 
 @router.post("")
 async def create_relationship(
-    session_id: str, body: RelationshipCreate, store: SQLiteStore = Depends(get_store)
+    session_id: str, body: RelationshipCreate, store: BaseStore = Depends(get_store)
 ):
     """Create a new relationship between characters."""
     session = await store.get_session(session_id)
@@ -36,7 +36,7 @@ async def create_relationship(
 
 
 @router.get("")
-async def list_relationships(session_id: str, store: SQLiteStore = Depends(get_store)):
+async def list_relationships(session_id: str, store: BaseStore = Depends(get_store)):
     """List all relationships in a session."""
     rels = await store.get_relationships(session_id)
     return [r.model_dump(mode="json") for r in rels]
@@ -44,7 +44,7 @@ async def list_relationships(session_id: str, store: SQLiteStore = Depends(get_s
 
 @router.get("/{from_char}/{to_char}")
 async def get_relationship(
-    session_id: str, from_char: str, to_char: str, store: SQLiteStore = Depends(get_store)
+    session_id: str, from_char: str, to_char: str, store: BaseStore = Depends(get_store)
 ):
     """Get a specific relationship between two characters."""
     rel = await store.get_relationship(from_char, to_char, session_id)
